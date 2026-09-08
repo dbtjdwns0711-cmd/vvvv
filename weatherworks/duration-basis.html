@@ -17,16 +17,6 @@
         <div class="desc">기상청 시간대별 관측 데이터(10개년) 분석 기반의 기상 비작업일 산정 기준, 공휴일 목록 및 환산 알고리즘을 확인합니다.</div>
       </div>
 
-      <!-- 공종별 작업가능 기준 테이블 -->
-      <div class="panel">
-        <div class="panel-head flex-between"><h3>적용 공종 및 작업가능 기준</h3><a class="hint" href="admin.html">Admin에서 수정 →</a></div>
-        <table>
-          <thead><tr><th>공종</th><th class="num">강우 한계(mm)</th><th class="num">풍속 한계(m/s)</th><th class="num">강설 한계(cm)</th><th class="num">최저기온(℃)</th><th class="num">최고기온(℃)</th><th>비고</th></tr></thead>
-          <tbody id="criteria-rows"></tbody>
-        </table>
-        <div class="notice" style="margin-top:12px;">※ 공종별 세부 임계치는 국토교통부 표준시방서 및 현장 계약 조건에 맞추어 Admin 화면에서 개별 조정할 수 있습니다.</div>
-      </div>
-
       <!-- 정밀 기상 비작업 판정 규칙 (코랩 분석 모델 반영) -->
       <div class="panel">
         <div class="panel-head"><h3>기상 조건별 작업불능 상세 판정 기준 (코랩 정밀 분석 모델)</h3></div>
@@ -118,21 +108,6 @@
 document.addEventListener('DOMContentLoaded', ()=>{
   renderTopbar('산정근거 검토', {showProjectSelect:true});
   const db = loadDB();
-  const pid = getCurrentProjectId(db);
-  const p = db.projects.find(x=>x.id===pid);
-  const workTypeIds = p ? p.workTypeIds : [];
-
-  document.getElementById('criteria-rows').innerHTML = db.criteria
-    .filter(c=> workTypeIds.includes(c.workTypeId))
-    .map(c=>{
-      const wt = db.workTypes.find(w=>w.id===c.workTypeId);
-      return `<tr>
-        <td>${wt?wt.name:'-'}</td>
-        <td class="num mono">${c.rainMaxMm}</td><td class="num mono">${c.windMaxMs}</td>
-        <td class="num mono">${c.snowMaxCm}</td><td class="num mono">${c.tempMinC}</td><td class="num mono">${c.tempMaxC}</td>
-        <td class="muted" style="font-size:12px;">${c.note||''}</td>
-      </tr>`;
-    }).join('') || '<tr><td colspan="7"><div class="empty">현장에 적용된 공종이 없습니다.</div></td></tr>';
 
   document.getElementById('holiday-year').textContent = db.holidays.length + '건';
   document.getElementById('holiday-rows').innerHTML = db.holidays.map(h=>`<tr><td class="mono">${h.date}</td><td>${h.name}</td></tr>`).join('');
