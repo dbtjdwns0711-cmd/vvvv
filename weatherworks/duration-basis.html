@@ -14,18 +14,76 @@
     <main id="page-content">
       <div class="page-head">
         <h2>공사기간 산정근거 검토</h2>
-        <div class="desc">이번 산정에 적용된 공종별 작업가능 기준, 공휴일 목록, 산정 방법을 확인합니다. 기준값은 Admin에서 수정할 수 있습니다.</div>
+        <div class="desc">기상청 시간대별 관측 데이터(10개년) 분석 기반의 기상 비작업일 산정 기준, 공휴일 목록 및 환산 알고리즘을 확인합니다.</div>
       </div>
 
+      <!-- 공종별 작업가능 기준 테이블 -->
       <div class="panel">
         <div class="panel-head flex-between"><h3>적용 공종 및 작업가능 기준</h3><a class="hint" href="admin.html">Admin에서 수정 →</a></div>
         <table>
           <thead><tr><th>공종</th><th class="num">강우 한계(mm)</th><th class="num">풍속 한계(m/s)</th><th class="num">강설 한계(cm)</th><th class="num">최저기온(℃)</th><th class="num">최고기온(℃)</th><th>비고</th></tr></thead>
           <tbody id="criteria-rows"></tbody>
         </table>
-        <div class="notice" style="margin-top:12px;">위 수치는 예시 기준이며 공인된 법적 기준이 아닙니다. 현장 특성과 발주처 기준(표준시방서, 계약조건 등)에 맞게 Admin 화면에서 조정해 사용하십시오.</div>
+        <div class="notice" style="margin-top:12px;">※ 공종별 세부 임계치는 국토교통부 표준시방서 및 현장 계약 조건에 맞추어 Admin 화면에서 개별 조정할 수 있습니다.</div>
       </div>
 
+      <!-- 정밀 기상 비작업 판정 규칙 (코랩 분석 모델 반영) -->
+      <div class="panel">
+        <div class="panel-head"><h3>기상 조건별 작업불능 상세 판정 기준 (코랩 정밀 분석 모델)</h3></div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:18%;">구분</th>
+              <th style="width:42%;">작업 불능 및 중지 판정 조건</th>
+              <th style="width:25%;">적용 손실 시간</th>
+              <th>비고</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>기준 근무 시간</strong></td>
+              <td>주간 07:00 ~ 17:00 (1일 총 10시간 가동 구간 대상 분석)</td>
+              <td>-</td>
+              <td class="muted" style="font-size:12px;">야간 시간대 제외</td>
+            </tr>
+            <tr>
+              <td><strong>지속성 강우</strong></td>
+              <td>근무시간 중 <strong>2시간 연속 시간당 강수량 1.0mm 이상</strong> 발생 시</td>
+              <td>오전(07~12시) 또는 오후(13~17시) <strong>반일 오프</strong></td>
+              <td class="muted" style="font-size:12px;">현장 토공·골조 중지</td>
+            </tr>
+            <tr>
+              <td><strong>강풍</strong></td>
+              <td>근무시간 중 순간/시간 풍속 <strong>15.0m/s 이상</strong> 발생 시</td>
+              <td>해당 반일(오전/오후) 작업 중지</td>
+              <td class="muted" style="font-size:12px;">크레인·고소작업 제한</td>
+            </tr>
+            <tr>
+              <td><strong>혹서기 (폭염)</strong></td>
+              <td>
+                • 일 최고 체감온도(Tw) <strong>35.0℃ 이상</strong>: 14시~17시 중지 (경량 손실)<br>
+                • 일 최고 체감온도(Tw) <strong>38.0℃ 이상</strong>: 당일 전일 작업 중지 (중증 손실)
+              </td>
+              <td>3~4시간 또는 전일 중지</td>
+              <td class="muted" style="font-size:12px;">여름철 습구체감온도 공식 적용</td>
+            </tr>
+            <tr>
+              <td><strong>혹한기 (한파)</strong></td>
+              <td>당일 일 최저기온 <strong>-12.0℃ 이하</strong> 발생 시</td>
+              <td>당일 전일 작업 중지</td>
+              <td class="muted" style="font-size:12px;">콘크리트 동결·토공 중지</td>
+            </tr>
+            <tr>
+              <td><strong>폭설 (적설)</strong></td>
+              <td>당일 일 최고 적설량 <strong>5.0cm 이상</strong> 관측 시</td>
+              <td>당일 전일 작업 중지</td>
+              <td class="muted" style="font-size:12px;">제설 및 진입로 차단</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 공휴일 -->
       <div class="panel">
         <div class="panel-head flex-between"><h3>적용 공휴일</h3><span class="hint" id="holiday-year"></span></div>
         <table>
@@ -34,14 +92,15 @@
         </table>
       </div>
 
+      <!-- 산정 방법 -->
       <div class="panel">
-        <div class="panel-head"><h3>산정 방법</h3></div>
+        <div class="panel-head"><h3>공기 산정 알고리즘 및 환산 방식</h3></div>
         <ol style="margin:0; padding-left:20px; font-size:13px; color:var(--ink-soft); line-height:1.9;">
-          <li>현장에 등록된 관측지점의 일별 기상 데이터(강수량·풍속·적설·기온)를 조회합니다.</li>
-          <li>현장에 적용된 각 공종의 작업가능 기준과 비교하여 기준을 벗어나는 공종이 하나라도 있으면 해당 일자를 기상 사유 비작업일로 판정합니다.</li>
-          <li>현장 설정에 따라 주말·공휴일을 비작업일로 추가 산입합니다.</li>
-          <li>사유가 2개 이상 중복되는 일자는 비작업일수 합계에는 1일로만 반영합니다.</li>
-          <li>작업일수 산정(물량 ÷ 표준작업량)과 비작업일수를 더해 예상 소요 공기를 계산하고, 계약 공기와 비교합니다.</li>
+          <li><strong>시간별 기상 데이터 추출</strong>: 현장 인근 관측소의 07:00~17:00 시간대별 기온·습도·풍속·강수량 데이터를 수집합니다.</li>
+          <li><strong>체감온도(Tw) 자동 연산</strong>: 기온(Ta)과 상대습도(RH)를 기반으로 기상청 기준 체감온도 다항식 회귀식을 적용해 여름철 온열 한계를 산출합니다.</li>
+          <li><strong>시간당 최대 손실 산정</strong>: 강우·강풍(반일 판정)과 혹한·폭염·폭설 사유가 동시 발생할 경우 시간대별 최대 손실(중복 제거)을 산정합니다.</li>
+          <li><strong>비작업일수 환산 (8시간 = 1일)</strong>: 당일 누적된 총 비작업 손실 시간을 표준 1일 작업시간인 <strong>8시간으로 나누어(손실시간 ÷ 8.0)</strong> 소수점 단위의 실질 비작업일수로 집계합니다.</li>
+          <li><strong>10개년 평년화 및 공기 도출</strong>: 과거 10개년 월평균 비작업일수와 달력상 공휴일(주휴일 포함)을 중복 배제하여 최종 실 작업가능일 및 공사기간을 산출합니다.</li>
         </ol>
       </div>
     </main>
