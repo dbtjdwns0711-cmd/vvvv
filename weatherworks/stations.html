@@ -12,100 +12,105 @@
   <div class="main">
     <header id="topbar"></header>
     <main id="page-content">
-      <div class="page-head flex-between">
-        <div>
-          <h2>공사 구간별 관측지점</h2>
-          <div class="desc">현장(구간)에 매칭할 기상 관측지점을 관리합니다. 현장 관리에서 이 목록 중 하나를 선택해 연결합니다.</div>
-        </div>
-        <button class="btn btn-primary" onclick="openForm()">+ 관측지점 추가</button>
+      <div class="page-head">
+        <h2>공사 구간별 관측지점 매핑</h2>
+        <div class="desc">전국 4,418개 행정구역(읍·면·동) 기반 최인접 기상관측소 매핑 정보 및 직선거리를 조회합니다.</div>
       </div>
 
       <div class="panel">
-        <table>
-          <thead><tr><th>지점명</th><th>지점 코드</th><th>지역</th><th>연결된 현장</th><th></th></tr></thead>
-          <tbody id="rows"></tbody>
-        </table>
-      </div>
+        <div class="panel-head flex-between">
+          <h3>기상관측소 매핑 현황</h3>
+          <span class="hint" id="total-count"></span>
+        </div>
 
-      <div class="panel" id="form-panel" style="display:none; margin-top:16px;">
-        <div class="panel-head"><h3 id="form-title">관측지점 추가</h3></div>
-        <div class="field-row">
-          <div class="field"><label>지점명</label><input id="f-name" type="text" placeholder="예) 현장 인근 관측소 A"></div>
-          <div class="field"><label>지점 코드</label><input id="f-code" type="text" placeholder="예) 108"></div>
-          <div class="field"><label>지역</label><input id="f-region" type="text" placeholder="예) 서울"></div>
+        <!-- 주소 및 지점 검색 입력창 -->
+        <div style="margin-bottom: 16px; display:flex; gap:10px;">
+          <input type="text" id="searchInput" placeholder="현장 주소(시군구, 읍·면·동) 또는 관측지점명 검색..." style="max-width:360px; padding:9px 14px; border:1px solid var(--line); border-radius:6px; font-size:14px;" oninput="filterData()">
         </div>
-        <div class="row gap-8">
-          <button class="btn btn-primary" onclick="save()">저장</button>
-          <button class="btn" onclick="closeForm()">취소</button>
-        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>현장 위치 (행정구역 주소)</th>
+              <th class="num">매핑 지점코드</th>
+              <th>매핑 관측지점명</th>
+              <th>관측소 실제 주소</th>
+              <th class="num">직선거리(km)</th>
+              <th>데이터 신뢰도</th>
+            </tr>
+          </thead>
+          <tbody id="station-rows"></tbody>
+        </table>
       </div>
     </main>
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="js/db.js"></script>
 <script src="js/seed.js"></script>
+<!-- 4,418개 매핑 데이터가 담긴 파일 로드 -->
+<script src="js/stations-data.js"></script>
 <script src="js/util.js"></script>
 <script src="js/calc.js"></script>
 <script src="js/nav.js"></script>
-<script src="js/sw-catalog.js"></script>
 <script>
-let editingId = null;
-function render(){
-  const db = loadDB();
-  document.getElementById('rows').innerHTML = db.stations.map(s=>{
-    const linked = db.projects.filter(p=>p.stationId===s.id).map(p=>p.name).join(', ') || '-';
-    return `<tr>
-      <td><b>${s.name}</b></td><td class="mono">${s.code||'-'}</td><td>${s.region||'-'}</td><td>${linked}</td>
-      <td class="row gap-8">
-        <button class="btn btn-sm" onclick="edit('${s.id}')">수정</button>
-        <button class="btn btn-sm btn-danger" onclick="remove('${s.id}')">삭제</button>
-      </td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="5"><div class="empty">등록된 관측지점이 없습니다.</div></td></tr>';
-}
-function openForm(){
-  editingId = null;
-  document.getElementById('form-title').textContent = '관측지점 추가';
-  document.getElementById('f-name').value = '';
-  document.getElementById('f-code').value = '';
-  document.getElementById('f-region').value = '';
-  document.getElementById('form-panel').style.display = 'block';
-}
-function closeForm(){ document.getElementById('form-panel').style.display = 'none'; }
-function edit(id){
-  const db = loadDB();
-  const s = db.stations.find(x=>x.id===id);
-  if(!s) return;
-  editingId = id;
-  document.getElementById('form-title').textContent = '관측지점 수정';
-  document.getElementById('f-name').value = s.name;
-  document.getElementById('f-code').value = s.code||'';
-  document.getElementById('f-region').value = s.region||'';
-  document.getElementById('form-panel').style.display = 'block';
-}
-function save(){
-  const name = document.getElementById('f-name').value.trim();
-  if(!name){ alert('지점명을 입력하세요.'); return; }
-  const db = loadDB();
-  const payload = {name, code: document.getElementById('f-code').value.trim(), region: document.getElementById('f-region').value.trim()};
-  if(editingId){
-    const idx = db.stations.findIndex(s=>s.id===editingId);
-    db.stations[idx] = {...db.stations[idx], ...payload};
-  } else {
-    db.stations.push({id: uid('st'), ...payload});
+// stations-data.js 에서 정의한 전역 배열 불러오기
+let currentList = typeof stationMappingData !== 'undefined' ? stationMappingData : [];
+
+function renderTable(list) {
+  const tbody = document.getElementById('station-rows');
+  const countEl = document.getElementById('total-count');
+  
+  if (countEl) {
+    countEl.textContent = `총 ${list.length.toLocaleString()}개 구간 매핑`;
   }
-  saveDB(db); closeForm(); render();
+
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty" style="text-align:center; padding:30px; color:#888;">일치하는 검색 결과가 없습니다.</div></td></tr>';
+    return;
+  }
+
+  // 데이터가 4,418개로 방대하므로 초기에는 상위 100건만 렌더링 (속도 저하 방지)
+  const displayList = list.slice(0, 100);
+
+  tbody.innerHTML = displayList.map(item => {
+    // 거리별 상태 배지 설정
+    const badge = item.dist <= 5.0
+      ? '<span style="background:#e6f4ea; color:#137333; padding:3px 8px; border-radius:4px; font-weight:600; font-size:12px;">최적 (5km 이내)</span>'
+      : item.dist <= 10.0
+      ? '<span style="background:#fef7e0; color:#b06000; padding:3px 8px; border-radius:4px; font-weight:600; font-size:12px;">보통 (10km 이내)</span>'
+      : '<span style="background:#fce8e6; color:#c5221f; padding:3px 8px; border-radius:4px; font-weight:600; font-size:12px;">원거리 (주의)</span>';
+
+    return `<tr>
+      <td><strong>${item.address}</strong></td>
+      <td class="num mono">${item.code}</td>
+      <td><strong>${item.name}</strong></td>
+      <td class="muted" style="font-size:12px;">${item.stationAddr}</td>
+      <td class="num mono"><strong>${item.dist.toFixed(2)}</strong> km</td>
+      <td>${badge}</td>
+    </tr>`;
+  }).join('') + (list.length > 100 ? `<tr><td colspan="6" style="text-align:center; color:#666; font-size:12px; background:#f9f9f9; padding:10px;">(상위 100건을 표시 중입니다. 상세 검색은 상단 검색창을 활용하세요.)</td></tr>` : '');
 }
-function remove(id){
-  const db = loadDB();
-  if(db.projects.some(p=>p.stationId===id)){ alert('이 관측지점을 사용 중인 현장이 있습니다. 먼저 현장의 관측지점을 변경하세요.'); return; }
-  if(!confirm('삭제하시겠습니까?')) return;
-  db.stations = db.stations.filter(s=>s.id!==id);
-  saveDB(db); render();
+
+// 실시간 필터링 (주소명, 지점명, 지점코드 검색 지원)
+function filterData() {
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  if (!q) {
+    renderTable(currentList);
+    return;
+  }
+  const filtered = currentList.filter(x => 
+    x.address.toLowerCase().includes(q) || 
+    x.name.toLowerCase().includes(q) || 
+    String(x.code).includes(q)
+  );
+  renderTable(filtered);
 }
-document.addEventListener('DOMContentLoaded', ()=>{ renderTopbar('공사 구간별 관측지점'); render(); });
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderTopbar('구간별 관측지점', {showProjectSelect: false});
+  renderTable(currentList);
+});
 </script>
 </body>
 </html>
