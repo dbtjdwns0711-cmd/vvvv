@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>일별 작업 가능성 · WeatherWorks</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app-shell">
+  <aside id="sidebar"></aside>
+  <div class="main">
+    <header id="topbar"></header>
+    <main id="page-content">
+      <div class="page-head flex-between">
+        <div>
+          <h2>일별 작업 가능성</h2>
+          <div class="desc">선택한 현장의 월별 작업 가능/불가능 캘린더입니다.</div>
+        </div>
+        <div class="row gap-8">
+          <button class="btn" onclick="shiftMonth(-1)">← 이전 달</button>
+          <span id="month-label" class="mono" style="min-width:80px; text-align:center; font-weight:600;"></span>
+          <button class="btn" onclick="shiftMonth(1)">다음 달 →</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="row gap-12" style="margin-bottom:14px;">
+          <span class="tag tag-green">● 작업가능</span>
+          <span class="tag tag-amber">● 기상사유 비작업</span>
+          <span class="tag tag-red">● 공휴일</span>
+        </div>
+        <div class="cal-grid" id="cal-dow"></div>
+        <div class="cal-grid" id="cal-body" style="margin-top:6px;"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/util.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/sw-catalog.js"></script>
+<script>
+let viewYear, viewMonth; // month 0-indexed
+
+function shiftMonth(delta){
+  viewMonth += delta;
+  if(viewMonth<0){ viewMonth=11; viewYear--; }
+  if(viewMonth>11){ viewMonth=0; viewYear++; }
+  render();
+}
+
+function render(){
+  const db = loadDB();
+  const projectId = getCurrentProjectId(db);
+  const p = db.projects.find(x=>x.id===projectId);
+  document.getElementById('month-label').textContent = `${viewYear}.${pad2(viewMonth+1)}`;
+
+  const dow = ['일','월','화','수','목','금','토'];
+  document.getElementById('cal-dow').innerHTML = dow.map(d=>`<div class="cal-dow">${d}</div>`).join('');
+
+  const body = document.getElementById('cal-body');
+  if(!p){ body.innerHTML = '<div class="empty">현장을 먼저 등록하세요.</div>'; return; }
+
+  const days = computeDailyStatus(p, db);
+  const statusByDate = {};
+  days.forEach(d=> statusByDate[d.date] = d);
+
+  const first = new Date(viewYear, viewMonth, 1);
+  const startOffset = first.getDay();
+  const lastDate = new Date(viewYear, viewMonth+1, 0).getDate();
+
+  let cells = '';
+  for(let i=0;i<startOffset;i++) cells += '<div class="cal-cell blank"></div>';
+  for(let d=1; d<=lastDate; d++){
+    const dateStr = `${viewYear}-${pad2(viewMonth+1)}-${pad2(d)}`;
+    const st = statusByDate[dateStr];
+    let cls = 'cal-cell';
+    let reasonTxt = '';
+    if(st){
+      if(st.holiday){ cls += ' holiday'; reasonTxt = st.holidayName; }
+      else if(!st.workable){ cls += ' nonwork'; reasonTxt = st.reasons.map(r=>r.type==='weekend'?'주말':r.label.split(' ')[0]).join(', '); }
+      else { cls += ' work'; }
+    }
+    cells += `<div class="${cls}"><div class="d">${d}</div>${reasonTxt?`<div class="reason">${reasonTxt}</div>`:''}</div>`;
+  }
+  body.innerHTML = cells;
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  renderTopbar('일별 작업 가능성', {showProjectSelect:true});
+  const today = new Date();
+  viewYear = today.getFullYear(); viewMonth = today.getMonth();
+  const db = loadDB();
+  const pid = getCurrentProjectId(db);
+  const p = db.projects.find(x=>x.id===pid);
+  if(p){ const sd = parseDate(p.startDate); viewYear = sd.getFullYear(); viewMonth = sd.getMonth(); }
+  render();
+});
+</script>
+</body>
+</html>

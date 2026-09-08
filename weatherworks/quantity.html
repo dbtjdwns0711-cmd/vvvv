@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>공사 물량·생산성 산정 · WeatherWorks</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app-shell">
+  <aside id="sidebar"></aside>
+  <div class="main">
+    <header id="topbar"></header>
+    <main id="page-content">
+      <div class="page-head flex-between">
+        <div>
+          <h2>공사 물량 · 생산성 산정</h2>
+          <div class="desc">공종별 총 물량과 표준작업량(1일 생산성)을 입력하면 필요 작업일수가 계산되어 작업일수 산정에 반영됩니다.</div>
+        </div>
+        <button class="btn btn-primary" onclick="openForm()">+ 물량 추가</button>
+      </div>
+
+      <div class="panel">
+        <table>
+          <thead><tr><th>공종</th><th class="num">총 물량</th><th>단위</th><th class="num">표준작업량(1일)</th><th class="num">필요 작업일수</th><th>근거</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div class="hr"></div>
+        <div class="flex-between"><span class="muted">합계 필요 작업일수 (공종 순차 진행 가정)</span><b class="mono" id="total-days">-</b></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>상하수도 표준 일일 작업량표에서 선택</h3>
+          <span class="hint">공정표 엑셀에서 가져온 201개 표준 품셈 항목</span>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>공정구분</label><select id="cat-filter" onchange="renderCatalog()"></select></div>
+          <div class="field"><label>검색어 (구분/작업조건)</label><input id="cat-search" type="text" placeholder="예) 관로 터파기, 리핑암, PVC..." oninput="renderCatalog()"></div>
+        </div>
+        <div id="catalog-list" style="max-height:420px; overflow-y:auto; border:1px solid var(--border); border-radius:6px;"></div>
+      </div>
+
+      <div class="panel" id="form-panel" style="display:none;">
+        <div class="panel-head"><h3 id="form-title">물량 추가</h3></div>
+        <div class="notice" id="form-source-note" style="display:none;"></div>
+        <div class="field-row">
+          <div class="field"><label>공종</label><select id="f-worktype"></select></div>
+          <div class="field"><label>총 물량</label><input id="f-qty" type="number" min="0"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>단위</label><input id="f-unit" type="text" placeholder="예) ㎥, ㎡, ton"></div>
+          <div class="field"><label>표준작업량(1일)</label><input id="f-output" type="number" min="0.01" step="0.01"></div>
+        </div>
+        <input type="hidden" id="f-note">
+        <div class="row gap-8">
+          <button class="btn btn-primary" onclick="save()">저장</button>
+          <button class="btn" onclick="closeForm()">취소</button>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/util.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/sw-catalog.js"></script>
+<script>
+let editingId = null;
+let prefill = null;
+
+function currentList(){
+  const db = loadDB();
+  const pid = getCurrentProjectId(db);
+  return db.quantities.filter(q=>q.projectId===pid);
+}
+
+function render(){
+  const db = loadDB();
+  const pid = getCurrentProjectId(db);
+  const list = currentList();
+  document.getElementById('rows').innerHTML = list.map(q=>{
+    const wt = db.workTypes.find(w=>w.id===q.workTypeId);
+    const days = q.dailyOutput ? Math.ceil(q.quantity/q.dailyOutput) : 0;
+    return `<tr>
+      <td>${wt?wt.name:'-'}</td>
+      <td class="num mono">${fmtNum(q.quantity,0)}</td>
+      <td>${q.unit||'-'}</td>
+      <td class="num mono">${fmtNum(q.dailyOutput,2)}</td>
+      <td class="num mono">${days}</td>
+      <td>${q.note ? `<span class="tag tag-violet" title="${q.note.replace(/"/g,'&quot;')}">표준품셈</span>` : '-'}</td>
+      <td class="row gap-8">
+        <button class="btn btn-sm" onclick="edit('${q.id}')">수정</button>
+        <button class="btn btn-sm btn-danger" onclick="remove('${q.id}')">삭제</button>
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7"><div class="empty">등록된 물량이 없습니다.</div></td></tr>';
+
+  const total = list.reduce((s,q)=> s + (q.dailyOutput ? Math.ceil(q.quantity/q.dailyOutput) : 0), 0);
+  document.getElementById('total-days').textContent = total + ' 일';
+}
+
+function openForm(pre){
+  const db = loadDB();
+  editingId = null;
+  prefill = pre || null;
+  document.getElementById('form-title').textContent = '물량 추가';
+  document.getElementById('f-worktype').innerHTML = db.workTypes.map(w=>`<option value="${w.id}">${w.name}</option>`).join('');
+  document.getElementById('f-qty').value = '';
+  document.getElementById('f-unit').value = pre ? pre.unit : '';
+  document.getElementById('f-output').value = pre ? pre.dailyOutput : '';
+  document.getElementById('f-note').value = pre ? pre.note : '';
+  if(pre && pre.workTypeId) document.getElementById('f-worktype').value = pre.workTypeId;
+
+  const noteBox = document.getElementById('form-source-note');
+  if(pre && pre.note){ noteBox.style.display = 'block'; noteBox.textContent = pre.note; }
+  else { noteBox.style.display = 'none'; noteBox.textContent = ''; }
+
+  document.getElementById('form-panel').style.display = 'block';
+  document.getElementById('form-panel').scrollIntoView({behavior:'smooth', block:'center'});
+}
+function closeForm(){ document.getElementById('form-panel').style.display = 'none'; prefill = null; }
+function edit(id){
+  const db = loadDB();
+  const q = db.quantities.find(x=>x.id===id);
+  if(!q) return;
+  editingId = id;
+  document.getElementById('form-title').textContent = '물량 수정';
+  document.getElementById('f-worktype').innerHTML = db.workTypes.map(w=>`<option value="${w.id}" ${w.id===q.workTypeId?'selected':''}>${w.name}</option>`).join('');
+  document.getElementById('f-qty').value = q.quantity;
+  document.getElementById('f-unit').value = q.unit;
+  document.getElementById('f-output').value = q.dailyOutput;
+  document.getElementById('f-note').value = q.note || '';
+  const noteBox = document.getElementById('form-source-note');
+  if(q.note){ noteBox.style.display = 'block'; noteBox.textContent = q.note; } else { noteBox.style.display = 'none'; }
+  document.getElementById('form-panel').style.display = 'block';
+}
+function save(){
+  const db = loadDB();
+  const pid = getCurrentProjectId(db);
+  if(!pid){ alert('현장을 먼저 등록하세요.'); return; }
+  const payload = {
+    projectId: pid,
+    workTypeId: document.getElementById('f-worktype').value,
+    quantity: Number(document.getElementById('f-qty').value)||0,
+    unit: document.getElementById('f-unit').value.trim(),
+    dailyOutput: Number(document.getElementById('f-output').value)||0,
+    note: document.getElementById('f-note').value || '',
+  };
+  if(editingId){
+    const idx = db.quantities.findIndex(q=>q.id===editingId);
+    db.quantities[idx] = {...db.quantities[idx], ...payload};
+  } else {
+    db.quantities.push({id: uid('q'), ...payload});
+  }
+  saveDB(db); closeForm(); render();
+}
+function remove(id){
+  if(!confirm('삭제하시겠습니까?')) return;
+  const db = loadDB();
+  db.quantities = db.quantities.filter(q=>q.id!==id);
+  saveDB(db); render();
+}
+function useCatalogItem(id){
+  const item = SW_CATALOG.find(i=>i.id===id);
+  if(!item) return;
+  const db = loadDB();
+  const wt = db.workTypes.find(w=>w.name===item.category);
+  openForm({
+    workTypeId: wt ? wt.id : '',
+    unit: item.unit,
+    dailyOutput: item.amount,
+    note: `[${item.name}] ${item.condition} · 산출근거: ${item.basis}`,
+  });
+}
+
+function renderCatalog(){
+  const cat = document.getElementById('cat-filter').value;
+  const q = document.getElementById('cat-search').value.trim().toLowerCase();
+  let list = SW_CATALOG;
+  if(cat) list = list.filter(i=>i.category===cat);
+  if(q) list = list.filter(i=>
+    i.name.toLowerCase().includes(q) ||
+    i.condition.toLowerCase().includes(q) ||
+    i.basis.toLowerCase().includes(q)
+  );
+  list = list.slice(0, 80);
+
+  document.getElementById('catalog-list').innerHTML = `
+    <table>
+      <thead><tr><th>구분</th><th>작업조건</th><th class="num">1일 작업량</th><th></th></tr></thead>
+      <tbody>
+        ${list.map(i=>`<tr>
+          <td><b>${i.name}</b><div class="muted" style="font-size:11px;">${i.category}</div></td>
+          <td style="font-size:12px; color:var(--ink-soft); white-space:pre-line; max-width:420px;">${i.condition}</td>
+          <td class="num mono">${fmtNum(i.amount,1)} ${i.unit}</td>
+          <td><button class="btn btn-sm btn-primary" onclick="useCatalogItem('${i.id}')">이 값 사용</button></td>
+        </tr>`).join('') || `<tr><td colspan="4"><div class="empty">검색 결과가 없습니다.</div></td></tr>`}
+      </tbody>
+    </table>
+    ${SW_CATALOG.length > list.length && list.length===80 ? '<div class="muted" style="font-size:11.5px; padding:8px 12px;">검색어를 좁혀 더 정확한 항목을 찾아보세요 (상위 80건만 표시)</div>' : ''}
+  `;
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  renderTopbar('공사 물량 · 생산성 산정', {showProjectSelect:true});
+  const db = loadDB();
+  if(ensureSwWorkTypes(db)) saveDB(db);
+  document.getElementById('cat-filter').innerHTML = '<option value="">전체 공정구분</option>' +
+    swCatalogCategories().map(c=>`<option value="${c}">${c}</option>`).join('');
+  render();
+  renderCatalog();
+});
+</script>
+</body>
+</html>

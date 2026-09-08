@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>비작업일수 산정 · WeatherWorks</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app-shell">
+  <aside id="sidebar"></aside>
+  <div class="main">
+    <header id="topbar"></header>
+    <main id="page-content">
+      <div class="page-head">
+        <h2>비작업일수 산정</h2>
+        <div class="desc">기상 기준(강우·강설·풍속·기온), 공휴일, 중복일을 반영해 비작업일수를 산정합니다.</div>
+      </div>
+
+      <div class="grid grid-4">
+        <div class="stat-card"><div class="label">총 비작업일수</div><div class="value" id="v-total">-</div></div>
+        <div class="stat-card"><div class="label">주말</div><div class="value" id="v-weekend">-</div></div>
+        <div class="stat-card"><div class="label">공휴일</div><div class="value" id="v-holiday">-</div></div>
+        <div class="stat-card"><div class="label">기상 사유</div><div class="value" id="v-weather">-</div></div>
+      </div>
+      <div class="notice" id="dup-note"></div>
+
+      <div class="panel">
+        <div class="panel-head flex-between">
+          <h3>일자별 산정 내역</h3>
+          <div class="row gap-8">
+            <select id="filter-reason">
+              <option value="">전체 사유</option>
+              <option value="weekend">주말</option>
+              <option value="holiday">공휴일</option>
+              <option value="weather">기상 사유</option>
+            </select>
+            <button class="btn btn-sm" onclick="exportRows()">CSV 내보내기</button>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>일자</th><th>요일</th><th>강수(mm)</th><th>풍속(m/s)</th><th>적설(cm)</th><th>사유</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/util.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/sw-catalog.js"></script>
+<script>
+let allDays = [];
+
+function render(){
+  const db = loadDB();
+  const pid = getCurrentProjectId(db);
+  const p = db.projects.find(x=>x.id===pid);
+  if(!p){
+    document.getElementById('rows').innerHTML = '<tr><td colspan="6"><div class="empty">현장을 먼저 등록하세요.</div></td></tr>';
+    return;
+  }
+  allDays = computeDailyStatus(p, db);
+  const s = summarizeStatus(allDays);
+
+  document.getElementById('v-total').innerHTML = s.nonWorking + '<small> 일</small>';
+  document.getElementById('v-weekend').innerHTML = (s.byReason.weekend||0) + '<small> 일</small>';
+  document.getElementById('v-holiday').innerHTML = (s.byReason.holiday||0) + '<small> 일</small>';
+  document.getElementById('v-weather').innerHTML = (s.byReason.weather||0) + '<small> 일</small>';
+  document.getElementById('dup-note').textContent = `사유가 2개 이상 겹치는 중복일은 ${s.duplicateOverlap}일이며, 총 비작업일수에는 1일로만 계산되어 있습니다 (사유별 항목은 중복 포함 합계).`;
+
+  renderRows();
+}
+
+function renderRows(){
+  const filter = document.getElementById('filter-reason').value;
+  const nonWorking = allDays.filter(d=>!d.workable);
+  const filtered = filter ? nonWorking.filter(d=> d.reasons.some(r=>r.type===filter)) : nonWorking;
+  document.getElementById('rows').innerHTML = filtered.map(d=>`<tr>
+    <td class="mono">${d.date}</td>
+    <td>${['일','월','화','수','목','금','토'][parseDate(d.date).getDay()]}</td>
+    <td class="num mono">${d.weather?d.weather.rainMm:'-'}</td>
+    <td class="num mono">${d.weather?d.weather.windMs:'-'}</td>
+    <td class="num mono">${d.weather?d.weather.snowCm:'-'}</td>
+    <td>${d.reasons.map(r=>`<span class="tag ${r.type==='weekend'?'tag-mute':r.type==='holiday'?'tag-red':'tag-amber'}">${r.label}</span>`).join(' ')}</td>
+  </tr>`).join('') || '<tr><td colspan="6"><div class="empty">해당 조건의 비작업일이 없습니다.</div></td></tr>';
+}
+
+function exportRows(){
+  const filter = document.getElementById('filter-reason').value;
+  const nonWorking = allDays.filter(d=>!d.workable);
+  const filtered = filter ? nonWorking.filter(d=> d.reasons.some(r=>r.type===filter)) : nonWorking;
+  const headers = ['일자','요일','사유'];
+  const rows = filtered.map(d=>({
+    '일자': d.date,
+    '요일': ['일','월','화','수','목','금','토'][parseDate(d.date).getDay()],
+    '사유': d.reasons.map(r=>r.label).join(' / '),
+  }));
+  downloadText('비작업일수_산정내역.csv', toCSV(headers, rows), 'text/csv;charset=utf-8');
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  renderTopbar('비작업일수 산정', {showProjectSelect:true});
+  render();
+  document.getElementById('filter-reason').addEventListener('change', renderRows);
+});
+</script>
+</body>
+</html>

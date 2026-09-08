@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>데이터 관리 · WeatherWorks</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app-shell">
+  <aside id="sidebar"></aside>
+  <div class="main">
+    <header id="topbar"></header>
+    <main id="page-content">
+      <div class="page-head">
+        <h2>데이터 관리</h2>
+        <div class="desc">모든 데이터는 이 브라우저의 localStorage에 저장됩니다. 다른 기기나 브라우저로 옮기려면 아래에서 전체 데이터를 내보내고 불러오세요.</div>
+      </div>
+
+      <div class="grid grid-2">
+        <div class="panel">
+          <div class="panel-head"><h3>전체 데이터 내보내기</h3></div>
+          <p class="muted" style="font-size:12.5px; margin-bottom:12px;">현장, 공종, 기준, 기상데이터, 공휴일 등 모든 데이터를 하나의 JSON 파일로 저장합니다.</p>
+          <button class="btn btn-primary" onclick="exportAll()">전체 데이터 JSON 내보내기</button>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>전체 데이터 불러오기</h3></div>
+          <p class="muted" style="font-size:12.5px; margin-bottom:12px;">내보낸 JSON 파일을 불러오면 현재 브라우저의 데이터를 <b>덮어씁니다</b>.</p>
+          <input type="file" id="restore-input" accept=".json">
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>개별 항목 CSV 내보내기</h3></div>
+        <div class="row gap-8" style="flex-wrap:wrap;">
+          <button class="btn btn-sm" onclick="exportTable('projects')">현장 목록</button>
+          <button class="btn btn-sm" onclick="exportTable('workTypes')">공종 목록</button>
+          <button class="btn btn-sm" onclick="exportTable('criteria')">작업가능 기준</button>
+          <button class="btn btn-sm" onclick="exportTable('weatherRecords')">기상 데이터</button>
+          <button class="btn btn-sm" onclick="exportTable('holidays')">공휴일 목록</button>
+          <button class="btn btn-sm" onclick="exportTable('quantities')">공사 물량</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>저장 현황</h3></div>
+        <table>
+          <tbody id="counts"></tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3 style="color:var(--red);">초기화</h3></div>
+        <p class="muted" style="font-size:12.5px; margin-bottom:12px;">모든 데이터를 삭제하고 예시 데이터로 되돌립니다. 되돌릴 수 없습니다.</p>
+        <button class="btn btn-danger" onclick="doReset()">전체 데이터 초기화</button>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/util.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/sw-catalog.js"></script>
+<script>
+function exportAll(){
+  const db = loadDB();
+  downloadText('weatherworks_backup_' + fmtDate(new Date()) + '.json', JSON.stringify(db, null, 2), 'application/json');
+}
+
+document.getElementById('restore-input').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const parsed = JSON.parse(reader.result);
+      if(!parsed.projects) throw new Error('올바른 백업 파일이 아닙니다.');
+      if(!confirm('현재 데이터를 덮어씁니다. 계속하시겠습니까?')) return;
+      saveDB(parsed);
+      alert('데이터를 불러왔습니다.');
+      renderCounts();
+    }catch(err){ alert('불러오기 실패: ' + err.message); }
+  };
+  reader.readAsText(file, 'utf-8');
+});
+
+function exportTable(key){
+  const db = loadDB();
+  const data = db[key] || [];
+  if(!data.length){ alert('내보낼 데이터가 없습니다.'); return; }
+  const headers = Object.keys(data[0]);
+  downloadText(`weatherworks_${key}.csv`, toCSV(headers, data), 'text/csv;charset=utf-8');
+}
+
+function renderCounts(){
+  const db = loadDB();
+  const labels = {
+    projects:'현장', workTypes:'공종', criteria:'작업가능 기준', stations:'관측지점',
+    weatherRecords:'기상 데이터', holidays:'공휴일', scheduleImports:'공정표 Import',
+    predictions:'예측 기록', quantities:'공사 물량', qcLog:'QC 수정이력',
+  };
+  document.getElementById('counts').innerHTML = Object.keys(labels).map(k=>
+    `<tr><td>${labels[k]}</td><td class="num mono">${(db[k]||[]).length}건</td></tr>`
+  ).join('');
+}
+
+function doReset(){
+  if(!confirm('정말 모든 데이터를 초기화하시겠습니까?')) return;
+  resetDB();
+  alert('초기화되었습니다.');
+  renderCounts();
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  renderTopbar('데이터 관리');
+  renderCounts();
+});
+</script>
+</body>
+</html>

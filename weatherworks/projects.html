@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>현장 관리 · WeatherWorks</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app-shell">
+  <aside id="sidebar"></aside>
+  <div class="main">
+    <header id="topbar"></header>
+    <main id="page-content">
+      <div class="page-head flex-between">
+        <div>
+          <h2>현장 관리</h2>
+          <div class="desc">현장을 등록하고 기간·관측지점·적용 공종을 설정합니다.</div>
+        </div>
+        <button class="btn btn-primary" onclick="openForm()">+ 현장 추가</button>
+      </div>
+
+      <div class="panel">
+        <table id="proj-table">
+          <thead>
+            <tr><th>현장명</th><th>위치</th><th>기간</th><th>관측지점</th><th>적용 공종</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="panel" id="form-panel" style="display:none; margin-top:16px;">
+        <div class="panel-head"><h3 id="form-title">현장 추가</h3></div>
+        <div class="field-row">
+          <div class="field"><label>현장명</label><input id="f-name" type="text" placeholder="예) ○○지구 공동주택 신축공사"></div>
+          <div class="field"><label>위치</label><input id="f-location" type="text" placeholder="예) 경기도 ○○시"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>착공일</label><input id="f-start" type="date"></div>
+          <div class="field"><label>준공(예정)일</label><input id="f-end" type="date"></div>
+          <div class="field"><label>계약 공기(일)</label><input id="f-contract" type="number" min="1"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>관측지점</label><select id="f-station"></select></div>
+          <div class="field"><label>적용 공종 (Ctrl/Cmd+클릭으로 다중 선택)</label>
+            <select id="f-worktypes" multiple size="4"></select>
+          </div>
+        </div>
+        <div class="checkline"><input type="checkbox" id="f-exweekend"><label for="f-exweekend" style="margin:0">주말을 비작업일로 산입</label></div>
+        <div class="checkline"><input type="checkbox" id="f-exholiday"><label for="f-exholiday" style="margin:0">공휴일을 비작업일로 산입</label></div>
+        <div class="row gap-8" style="margin-top:14px;">
+          <button class="btn btn-primary" onclick="saveProject()">저장</button>
+          <button class="btn" onclick="closeForm()">취소</button>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/util.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/sw-catalog.js"></script>
+<script>
+let editingId = null;
+
+function render(){
+  const db = loadDB();
+  document.querySelector('#proj-table tbody').innerHTML = db.projects.map(p=>{
+    const wtNames = (p.workTypeIds||[]).map(id=>{
+      const wt = db.workTypes.find(w=>w.id===id);
+      return wt ? wt.name : id;
+    }).join(', ');
+    const st = db.stations.find(s=>s.id===p.stationId);
+    return `<tr>
+      <td><b>${p.name}</b></td>
+      <td>${p.location||'-'}</td>
+      <td class="mono">${p.startDate} ~ ${p.endDate}</td>
+      <td>${st ? st.name : '-'}</td>
+      <td>${wtNames || '-'}</td>
+      <td class="row gap-8">
+        <a class="btn btn-sm" href="project-detail.html?id=${p.id}">상세</a>
+        <button class="btn btn-sm" onclick="editProject('${p.id}')">수정</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteProject('${p.id}')">삭제</button>
+      </td>
+    </tr>`;
+  }).join('') || '';
+  if(!db.projects.length){
+    document.querySelector('#proj-table tbody').innerHTML = `<tr><td colspan="6"><div class="empty">등록된 현장이 없습니다.</div></td></tr>`;
+  }
+}
+
+function populateSelects(){
+  const db = loadDB();
+  document.getElementById('f-station').innerHTML = db.stations.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+  document.getElementById('f-worktypes').innerHTML = db.workTypes.map(w=>`<option value="${w.id}">${w.name}</option>`).join('');
+}
+
+function openForm(){
+  editingId = null;
+  document.getElementById('form-title').textContent = '현장 추가';
+  document.getElementById('f-name').value = '';
+  document.getElementById('f-location').value = '';
+  document.getElementById('f-start').value = '';
+  document.getElementById('f-end').value = '';
+  document.getElementById('f-contract').value = '';
+  document.getElementById('f-exweekend').checked = true;
+  document.getElementById('f-exholiday').checked = true;
+  populateSelects();
+  document.getElementById('form-panel').style.display = 'block';
+}
+
+function closeForm(){ document.getElementById('form-panel').style.display = 'none'; }
+
+function editProject(id){
+  const db = loadDB();
+  const p = db.projects.find(x=>x.id===id);
+  if(!p) return;
+  editingId = id;
+  populateSelects();
+  document.getElementById('form-title').textContent = '현장 수정';
+  document.getElementById('f-name').value = p.name;
+  document.getElementById('f-location').value = p.location || '';
+  document.getElementById('f-start').value = p.startDate;
+  document.getElementById('f-end').value = p.endDate;
+  document.getElementById('f-contract').value = p.contractDays || '';
+  document.getElementById('f-station').value = p.stationId || '';
+  document.getElementById('f-exweekend').checked = !!p.excludeWeekends;
+  document.getElementById('f-exholiday').checked = !!p.excludeHolidays;
+  Array.from(document.getElementById('f-worktypes').options).forEach(o=>{
+    o.selected = (p.workTypeIds||[]).includes(o.value);
+  });
+  document.getElementById('form-panel').style.display = 'block';
+}
+
+function saveProject(){
+  const name = document.getElementById('f-name').value.trim();
+  const start = document.getElementById('f-start').value;
+  const end = document.getElementById('f-end').value;
+  if(!name || !start || !end){ alert('현장명, 착공일, 준공일은 필수입니다.'); return; }
+  if(start > end){ alert('준공일은 착공일 이후여야 합니다.'); return; }
+
+  const db = loadDB();
+  const workTypeIds = Array.from(document.getElementById('f-worktypes').selectedOptions).map(o=>o.value);
+  const payload = {
+    name,
+    location: document.getElementById('f-location').value.trim(),
+    startDate: start, endDate: end,
+    contractDays: Number(document.getElementById('f-contract').value) || daysBetween(start,end),
+    stationId: document.getElementById('f-station').value,
+    workTypeIds,
+    excludeWeekends: document.getElementById('f-exweekend').checked,
+    excludeHolidays: document.getElementById('f-exholiday').checked,
+  };
+
+  if(editingId){
+    const idx = db.projects.findIndex(p=>p.id===editingId);
+    db.projects[idx] = {...db.projects[idx], ...payload};
+  } else {
+    db.projects.push({id: uid('p'), ...payload});
+  }
+  saveDB(db);
+  closeForm();
+  render();
+}
+
+function deleteProject(id){
+  if(!confirm('이 현장을 삭제하시겠습니까? 관련 데이터는 유지되지만 현장 목록에서 제거됩니다.')) return;
+  const db = loadDB();
+  db.projects = db.projects.filter(p=>p.id!==id);
+  saveDB(db);
+  render();
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  renderTopbar('현장 관리');
+  render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>현장별 상세 분석 · WeatherWorks</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app-shell">
+  <aside id="sidebar"></aside>
+  <div class="main">
+    <header id="topbar"></header>
+    <main id="page-content">
+      <div class="page-head">
+        <h2>현장별 상세 분석</h2>
+        <div class="desc">분석할 현장을 선택하세요.</div>
+      </div>
+      <div class="grid grid-3" id="cards"></div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/util.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/sw-catalog.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', ()=>{
+  renderTopbar('현장별 상세 분석');
+  const db = loadDB();
+  const cards = document.getElementById('cards');
+  if(!db.projects.length){
+    cards.innerHTML = '<div class="empty">등록된 현장이 없습니다.</div>';
+    return;
+  }
+  cards.innerHTML = db.projects.map(p=>{
+    const days = computeDailyStatus(p, db);
+    const s = summarizeStatus(days);
+    return `<a class="panel" style="display:block; cursor:pointer;" href="project-detail.html?id=${p.id}">
+      <div class="panel-head"><h3>${p.name}</h3></div>
+      <div class="muted" style="font-size:12px; margin-bottom:10px;">${p.location||''} · ${p.startDate} ~ ${p.endDate}</div>
+      <div class="row gap-8">
+        <span class="tag tag-green">가능률 ${fmtNum(s.workableRate*100,1)}%</span>
+        <span class="tag tag-amber">비작업 ${s.nonWorking}일</span>
+      </div>
+    </a>`;
+  }).join('');
+});
+</script>
+</body>
+</html>

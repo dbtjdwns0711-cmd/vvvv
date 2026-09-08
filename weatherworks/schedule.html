@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>공정표 Import · WeatherWorks</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app-shell">
+  <aside id="sidebar"></aside>
+  <div class="main">
+    <header id="topbar"></header>
+    <main id="page-content">
+      <div class="page-head">
+        <h2>공정표 Import</h2>
+        <div class="desc">계획/실제 공정을 엑셀로 불러와 현장별로 저장합니다. 필요한 열: 공종, 계획시작일, 계획종료일, 실제시작일(선택), 실제종료일(선택).</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>엑셀 업로드</h3></div>
+        <div class="field-row">
+          <div class="field"><label>파일 선택</label><input type="file" id="file-input" accept=".csv,.xlsx,.xls"></div>
+          <div class="field" style="align-self:flex-end;"><button class="btn" onclick="downloadSample()">샘플 CSV 다운로드</button></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head flex-between">
+          <h3>저장된 공정표</h3>
+          <span class="hint" id="import-meta"></span>
+        </div>
+        <div id="gantt"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/util.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/sw-catalog.js"></script>
+<script>
+function downloadSample(){
+  const headers = ['공종','계획시작일','계획종료일','실제시작일','실제종료일'];
+  const rows = [
+    {'공종':'토공사','계획시작일':'2026-01-05','계획종료일':'2026-03-20','실제시작일':'2026-01-08','실제종료일':''},
+    {'공종':'콘크리트공사','계획시작일':'2026-03-01','계획종료일':'2026-08-15','실제시작일':'','실제종료일':''},
+  ];
+  downloadText('weatherworks_공정표_샘플.csv', toCSV(headers, rows), 'text/csv;charset=utf-8');
+}
+
+document.getElementById('file-input').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const db = loadDB();
+  const pid = getCurrentProjectId(db);
+  if(!pid){ alert('현장을 먼저 등록하세요.'); return; }
+  try{
+    const parsed = await readSpreadsheetFile(file);
+    const rows = parsed.rows.map(r=>({
+      workTypeName: r['공종']||'', plannedStart: r['계획시작일']||'', plannedEnd: r['계획종료일']||'',
+      actualStart: r['실제시작일']||'', actualEnd: r['실제종료일']||'',
+    })).filter(r=>r.workTypeName && r.plannedStart && r.plannedEnd);
+
+    db.scheduleImports = db.scheduleImports.filter(s=>s.projectId!==pid);
+    db.scheduleImports.push({id: uid('sch'), projectId: pid, fileName: file.name, importedAt: new Date().toISOString(), rows});
+    saveDB(db);
+    document.getElementById('file-input').value = '';
+    render();
+  }catch(err){ alert('파일을 읽는 중 오류: ' + err.message); }
+});
+
+function render(){
+  const db = loadDB();
+  const pid = getCurrentProjectId(db);
+  const p = db.projects.find(x=>x.id===pid);
+  const imp = db.scheduleImports.find(s=>s.projectId===pid);
+  const gantt = document.getElementById('gantt');
+  document.getElementById('import-meta').textContent = imp ? `${imp.fileName} · ${new Date(imp.importedAt).toLocaleString('ko-KR')}` : '';
+
+  if(!p || !imp || !imp.rows.length){
+    gantt.innerHTML = '<div class="empty">현장에 저장된 공정표가 없습니다. 엑셀을 업로드하세요.</div>';
+    return;
+  }
+
+  const rangeStart = parseDate(p.startDate), rangeEnd = parseDate(p.endDate);
+  const totalSpan = (rangeEnd - rangeStart) / 86400000 || 1;
+
+  gantt.innerHTML = imp.rows.map(r=>{
+    const ps = parseDate(r.plannedStart), pe = parseDate(r.plannedEnd);
+    const left = Math.max(0, (ps - rangeStart)/86400000) / totalSpan * 100;
+    const width = Math.max(0.5, (pe - ps)/86400000) / totalSpan * 100;
+    let actualBar = '';
+    if(r.actualStart && r.actualEnd){
+      const as = parseDate(r.actualStart), ae = parseDate(r.actualEnd);
+      const aleft = Math.max(0, (as - rangeStart)/86400000) / totalSpan * 100;
+      const awidth = Math.max(0.5, (ae - as)/86400000) / totalSpan * 100;
+      actualBar = `<div style="position:relative; height:8px; margin-top:3px;">
+        <div style="position:absolute; left:${aleft}%; width:${awidth}%; height:8px; background:var(--amber); border-radius:3px;"></div>
+      </div>`;
+    }
+    return `<div style="margin-bottom:14px;">
+      <div class="row flex-between" style="font-size:12.5px; margin-bottom:4px;"><b>${r.workTypeName}</b>
+        <span class="mono muted">${r.plannedStart} ~ ${r.plannedEnd}</span></div>
+      <div style="position:relative; height:14px; background:var(--surface-sunken); border-radius:3px;">
+        <div style="position:absolute; left:${left}%; width:${width}%; height:14px; background:var(--primary); border-radius:3px;"></div>
+      </div>
+      ${actualBar}
+    </div>`;
+  }).join('') + `<div class="row gap-12" style="margin-top:6px; font-size:12px;">
+      <span class="row gap-8"><span style="width:12px;height:8px;background:var(--primary);border-radius:2px;display:inline-block;"></span>계획</span>
+      <span class="row gap-8"><span style="width:12px;height:8px;background:var(--amber);border-radius:2px;display:inline-block;"></span>실제</span>
+    </div>`;
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  renderTopbar('공정표 Import', {showProjectSelect:true});
+  render();
+});
+</script>
+</body>
+</html>

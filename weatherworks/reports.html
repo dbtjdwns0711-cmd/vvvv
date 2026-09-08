@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>분석 보고서 · WeatherWorks</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app-shell">
+  <aside id="sidebar"></aside>
+  <div class="main">
+    <header id="topbar"></header>
+    <main id="page-content">
+      <div class="page-head">
+        <h2>분석 보고서</h2>
+        <div class="desc">현장별 공사기간 산정 결과 보고서를 확인하거나, 전체 현장 요약을 CSV로 내보냅니다.</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head flex-between">
+          <h3>전체 현장 요약</h3>
+          <button class="btn btn-sm" onclick="exportSummary()">CSV 내보내기</button>
+        </div>
+        <table>
+          <thead><tr><th>현장명</th><th class="num">총 일수</th><th class="num">작업가능일</th><th class="num">비작업일</th><th class="num">가능률</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/util.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/sw-catalog.js"></script>
+<script>
+function openReport(id){
+  setCurrentProjectId(id);
+  location.href = 'duration-report.html';
+}
+
+let summaryCache = [];
+
+function render(){
+  const db = loadDB();
+  summaryCache = db.projects.map(p=>{
+    const days = computeDailyStatus(p, db);
+    const s = summarizeStatus(days);
+    return {p, s};
+  });
+  document.getElementById('rows').innerHTML = summaryCache.map(({p,s})=>`<tr>
+    <td><b>${p.name}</b></td>
+    <td class="num mono">${s.total}</td><td class="num mono">${s.working}</td><td class="num mono">${s.nonWorking}</td>
+    <td class="num mono">${fmtNum(s.workableRate*100,1)}%</td>
+    <td><button class="btn btn-sm" onclick="openReport('${p.id}')">보고서 보기</button></td>
+  </tr>`).join('') || '<tr><td colspan="6"><div class="empty">등록된 현장이 없습니다.</div></td></tr>';
+}
+
+function exportSummary(){
+  const headers = ['현장명','총일수','작업가능일','비작업일','가능률(%)'];
+  const rows = summaryCache.map(({p,s})=>({
+    '현장명':p.name, '총일수':s.total, '작업가능일':s.working, '비작업일':s.nonWorking,
+    '가능률(%)': fmtNum(s.workableRate*100,1),
+  }));
+  downloadText('weatherworks_전체현장_요약.csv', toCSV(headers, rows), 'text/csv;charset=utf-8');
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  renderTopbar('분석 보고서');
+  render();
+});
+</script>
+</body>
+</html>

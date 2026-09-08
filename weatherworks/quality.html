@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>기상데이터 품질관리 · WeatherWorks</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app-shell">
+  <aside id="sidebar"></aside>
+  <div class="main">
+    <header id="topbar"></header>
+    <main id="page-content">
+      <div class="page-head">
+        <h2>기상데이터 품질관리</h2>
+        <div class="desc">업로드된 원본(Raw) 기상 데이터의 이상치를 확인하고 수정합니다. 수정 이력은 자동으로 기록됩니다.</div>
+      </div>
+
+      <div class="notice">이상치 기준(예시): 강수량 &gt; 200mm, 풍속 &gt; 40m/s, 적설 &gt; 50cm 인 값은 입력 오류일 가능성이 있어 표시됩니다.</div>
+
+      <div class="panel">
+        <div class="panel-head flex-between">
+          <h3>Raw 데이터 · 이상치만 보기</h3>
+          <label class="checkline" style="margin:0;"><input type="checkbox" id="only-outlier" checked onchange="render()"> 이상치만 표시</label>
+        </div>
+        <table>
+          <thead><tr><th>날짜</th><th>관측지점</th><th class="num">강수량(mm)</th><th class="num">풍속(m/s)</th><th class="num">적설(cm)</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>수정 이력</h3></div>
+        <table>
+          <thead><tr><th>수정일시</th><th>날짜</th><th>항목</th><th>이전 값</th><th>수정 값</th></tr></thead>
+          <tbody id="log-rows"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/util.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/sw-catalog.js"></script>
+<script>
+function isOutlier(w){
+  return w.rainMm > 200 || w.windMs > 40 || w.snowCm > 50;
+}
+
+function editField(stationId, date, field, current){
+  const val = prompt(`${field} 값 수정 (${date})`, current);
+  if(val === null || val === '' || isNaN(Number(val))) return;
+  const db = loadDB();
+  const rec = db.weatherRecords.find(w=>w.stationId===stationId && w.date===date);
+  if(!rec) return;
+  const oldVal = rec[field];
+  rec[field] = Number(val);
+  db.qcLog.push({id: uid('qc'), date, stationId, field, oldValue: oldVal, newValue: Number(val), editedAt: new Date().toISOString()});
+  saveDB(db);
+  render();
+}
+
+function render(){
+  const db = loadDB();
+  const onlyOutlier = document.getElementById('only-outlier').checked;
+  let list = [...db.weatherRecords].sort((a,b)=> b.date.localeCompare(a.date));
+  if(onlyOutlier) list = list.filter(isOutlier);
+  list = list.slice(0,150);
+
+  document.getElementById('rows').innerHTML = list.map(w=>{
+    const st = db.stations.find(s=>s.id===w.stationId);
+    const flag = isOutlier(w);
+    return `<tr>
+      <td class="mono">${w.date}</td><td>${st?st.name:'-'}</td>
+      <td class="num mono" style="${w.rainMm>200?'color:var(--red);font-weight:600':''}">${w.rainMm}</td>
+      <td class="num mono" style="${w.windMs>40?'color:var(--red);font-weight:600':''}">${w.windMs}</td>
+      <td class="num mono" style="${w.snowCm>50?'color:var(--red);font-weight:600':''}">${w.snowCm}</td>
+      <td class="row gap-8">
+        ${flag ? '<span class="tag tag-red">이상치 의심</span>' : ''}
+        <button class="btn btn-sm" onclick="editField('${w.stationId}','${w.date}','rainMm',${w.rainMm})">강수 수정</button>
+        <button class="btn btn-sm" onclick="editField('${w.stationId}','${w.date}','windMs',${w.windMs})">풍속 수정</button>
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6"><div class="empty">표시할 데이터가 없습니다.</div></td></tr>';
+
+  document.getElementById('log-rows').innerHTML = [...db.qcLog].reverse().slice(0,50).map(l=>`<tr>
+    <td class="mono" style="font-size:11.5px;">${new Date(l.editedAt).toLocaleString('ko-KR')}</td>
+    <td class="mono">${l.date}</td><td>${l.field}</td>
+    <td class="num mono">${l.oldValue}</td><td class="num mono">${l.newValue}</td>
+  </tr>`).join('') || '<tr><td colspan="5"><div class="empty">수정 이력이 없습니다.</div></td></tr>';
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  renderTopbar('기상데이터 품질관리');
+  render();
+});
+</script>
+</body>
+</html>

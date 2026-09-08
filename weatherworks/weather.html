@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>기상 데이터 조회 · WeatherWorks</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app-shell">
+  <aside id="sidebar"></aside>
+  <div class="main">
+    <header id="topbar"></header>
+    <main id="page-content">
+      <div class="page-head">
+        <h2>기상 데이터 조회</h2>
+        <div class="desc">현장에서 보유한 기상 관측 자료를 엑셀(.xlsx) 또는 CSV로 업로드하여 비작업일수 산정에 사용합니다.</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>엑셀/CSV 업로드</h3></div>
+        <div class="notice">
+          필요한 열: <b>날짜</b>(YYYY-MM-DD), <b>관측지점</b>(구간별 관측지점 페이지에 등록한 지점명), <b>강수량</b>(mm), <b>풍속</b>(m/s), <b>적설</b>(cm), <b>최고기온</b>(℃), <b>최저기온</b>(℃).
+          열 이름이 다르면 업로드 후 매칭 화면에서 연결할 수 있습니다.
+        </div>
+        <div class="field-row">
+          <div class="field"><label>파일 선택</label><input type="file" id="file-input" accept=".csv,.xlsx,.xls"></div>
+          <div class="field" style="align-self:flex-end;"><button class="btn" onclick="downloadSample()">샘플 CSV 다운로드</button></div>
+        </div>
+        <div id="mapping-area"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head flex-between">
+          <h3>업로드된 기상 데이터</h3>
+          <div class="row gap-8">
+            <select id="filter-station"></select>
+            <select id="filter-month"></select>
+            <button class="btn btn-sm" onclick="exportCurrent()">CSV 내보내기</button>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>날짜</th><th>관측지점</th><th class="num">강수량(mm)</th><th class="num">풍속(m/s)</th><th class="num">적설(cm)</th><th class="num">최고기온(℃)</th><th class="num">최저기온(℃)</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/util.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/sw-catalog.js"></script>
+<script>
+const COLMAP = {
+  '날짜':'date', 'date':'date',
+  '관측지점':'station', 'station':'station',
+  '강수량':'rainMm', '강수량(mm)':'rainMm', 'rainMm':'rainMm',
+  '풍속':'windMs', '풍속(m/s)':'windMs', 'windMs':'windMs',
+  '적설':'snowCm', '적설(cm)':'snowCm', 'snowCm':'snowCm',
+  '최고기온':'tempMaxC', '최고기온(℃)':'tempMaxC', 'tempMaxC':'tempMaxC',
+  '최저기온':'tempMinC', '최저기온(℃)':'tempMinC', 'tempMinC':'tempMinC',
+};
+
+function downloadSample(){
+  const headers = ['날짜','관측지점','강수량','풍속','적설','최고기온','최저기온'];
+  const rows = [
+    {'날짜':'2026-04-01','관측지점':'현장 인근 관측소 A','강수량':0,'풍속':3,'적설':0,'최고기온':17,'최저기온':6},
+    {'날짜':'2026-04-02','관측지점':'현장 인근 관측소 A','강수량':12,'풍속':9,'적설':0,'최고기온':14,'최저기온':8},
+  ];
+  downloadText('weatherworks_기상데이터_샘플.csv', toCSV(headers, rows), 'text/csv;charset=utf-8');
+}
+
+let pendingParse = null;
+
+document.getElementById('file-input').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  try{
+    const parsed = await readSpreadsheetFile(file);
+    pendingParse = parsed;
+    renderMapping(parsed.headers);
+  }catch(err){
+    alert('파일을 읽는 중 오류가 발생했습니다: ' + err.message);
+  }
+});
+
+function renderMapping(headers){
+  const db = loadDB();
+  const targets = [
+    {key:'date', label:'날짜'}, {key:'station', label:'관측지점'},
+    {key:'rainMm', label:'강수량(mm)'}, {key:'windMs', label:'풍속(m/s)'},
+    {key:'snowCm', label:'적설(cm)'}, {key:'tempMaxC', label:'최고기온(℃)'}, {key:'tempMinC', label:'최저기온(℃)'},
+  ];
+  const area = document.getElementById('mapping-area');
+  area.innerHTML = `
+    <div class="hr"></div>
+    <div class="panel-head"><h3>열 매칭 확인</h3><span class="hint">${headers.length}개 열 인식됨 · ${pendingParse.rows.length}행</span></div>
+    <div class="grid grid-3">
+      ${targets.map(t=>{
+        const guess = headers.find(h=> COLMAP[h]===t.key) || '';
+        return `<div class="field"><label>${t.label}</label>
+          <select data-target="${t.key}" class="map-select">
+            <option value="">-- 선택 안 함 --</option>
+            ${headers.map(h=>`<option value="${h}" ${h===guess?'selected':''}>${h}</option>`).join('')}
+          </select></div>`;
+      }).join('')}
+    </div>
+    <button class="btn btn-primary" onclick="commitImport()">이 매칭으로 가져오기</button>
+  `;
+}
+
+function commitImport(){
+  const db = loadDB();
+  const map = {};
+  document.querySelectorAll('.map-select').forEach(sel=>{
+    if(sel.value) map[sel.dataset.target] = sel.value;
+  });
+  if(!map.date || !map.station){ alert('날짜와 관측지점 열은 반드시 선택해야 합니다.'); return; }
+
+  let imported = 0, skipped = 0;
+  pendingParse.rows.forEach(r=>{
+    const stationName = String(r[map.station]||'').trim();
+    const station = db.stations.find(s=>s.name===stationName);
+    const date = String(r[map.date]||'').trim();
+    if(!station || !date){ skipped++; return; }
+    const rec = {
+      stationId: station.id, date,
+      rainMm: Number(r[map.rainMm])||0,
+      windMs: Number(r[map.windMs])||0,
+      snowCm: Number(r[map.snowCm])||0,
+      tempMaxC: map.tempMaxC ? Number(r[map.tempMaxC])||0 : 0,
+      tempMinC: map.tempMinC ? Number(r[map.tempMinC])||0 : 0,
+    };
+    const existingIdx = db.weatherRecords.findIndex(w=>w.stationId===rec.stationId && w.date===rec.date);
+    if(existingIdx>=0) db.weatherRecords[existingIdx] = rec; else db.weatherRecords.push(rec);
+    imported++;
+  });
+  saveDB(db);
+  document.getElementById('mapping-area').innerHTML = '';
+  document.getElementById('file-input').value = '';
+  alert(`${imported}건을 가져왔습니다. (매칭 실패 ${skipped}건)`);
+  populateFilters();
+  render();
+}
+
+function populateFilters(){
+  const db = loadDB();
+  const stSel = document.getElementById('filter-station');
+  stSel.innerHTML = '<option value="">전체 관측지점</option>' + db.stations.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+  const months = [...new Set(db.weatherRecords.map(w=>monthLabel(w.date)))].sort();
+  document.getElementById('filter-month').innerHTML = '<option value="">전체 기간</option>' + months.map(m=>`<option value="${m}">${m}</option>`).join('');
+}
+
+function currentFiltered(){
+  const db = loadDB();
+  const st = document.getElementById('filter-station').value;
+  const mo = document.getElementById('filter-month').value;
+  return db.weatherRecords
+    .filter(w=> !st || w.stationId===st)
+    .filter(w=> !mo || monthLabel(w.date)===mo)
+    .sort((a,b)=> b.date.localeCompare(a.date));
+}
+
+function render(){
+  const db = loadDB();
+  const list = currentFiltered().slice(0,200);
+  document.getElementById('rows').innerHTML = list.map(w=>{
+    const st = db.stations.find(s=>s.id===w.stationId);
+    return `<tr>
+      <td class="mono">${w.date}</td><td>${st?st.name:'-'}</td>
+      <td class="num mono">${w.rainMm}</td><td class="num mono">${w.windMs}</td>
+      <td class="num mono">${w.snowCm}</td><td class="num mono">${w.tempMaxC}</td><td class="num mono">${w.tempMinC}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7"><div class="empty">데이터가 없습니다. 엑셀/CSV를 업로드하세요.</div></td></tr>';
+}
+
+function exportCurrent(){
+  const db = loadDB();
+  const list = currentFiltered();
+  const headers = ['날짜','관측지점','강수량','풍속','적설','최고기온','최저기온'];
+  const rows = list.map(w=>{
+    const st = db.stations.find(s=>s.id===w.stationId);
+    return {'날짜':w.date,'관측지점':st?st.name:'','강수량':w.rainMm,'풍속':w.windMs,'적설':w.snowCm,'최고기온':w.tempMaxC,'최저기온':w.tempMinC};
+  });
+  downloadText('weatherworks_기상데이터.csv', toCSV(headers, rows), 'text/csv;charset=utf-8');
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  renderTopbar('기상 데이터 조회');
+  populateFilters();
+  render();
+  document.getElementById('filter-station').addEventListener('change', render);
+  document.getElementById('filter-month').addEventListener('change', render);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>현장 상세 분석 · WeatherWorks</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app-shell">
+  <aside id="sidebar"></aside>
+  <div class="main">
+    <header id="topbar"></header>
+    <main id="page-content" id="content-root">
+      <div id="body-slot"></div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/util.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/sw-catalog.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', ()=>{
+  const db = loadDB();
+  const id = qs('id');
+  const p = db.projects.find(x=>x.id===id);
+  const slot = document.getElementById('body-slot');
+
+  if(!p){
+    renderTopbar('현장 상세 분석');
+    slot.innerHTML = `<div class="page-head"><h2>현장을 찾을 수 없습니다</h2></div>
+      <a class="btn btn-primary" href="projects.html">현장 목록으로</a>`;
+    return;
+  }
+
+  renderTopbar('현장 상세 분석 · ' + p.name);
+  const days = computeDailyStatus(p, db);
+  const s = summarizeStatus(days);
+
+  slot.innerHTML = `
+    <div class="page-head">
+      <h2>${p.name}</h2>
+      <div class="desc">${p.location||''} · ${p.startDate} ~ ${p.endDate} · 계약공기 ${p.contractDays||'-'}일</div>
+    </div>
+    <div class="grid grid-4">
+      <div class="stat-card"><div class="label">총 공사기간</div><div class="value">${s.total}<small> 일</small></div></div>
+      <div class="stat-card"><div class="label">작업가능일</div><div class="value">${s.working}<small> 일</small></div></div>
+      <div class="stat-card"><div class="label">비작업일수</div><div class="value">${s.nonWorking}<small> 일</small></div></div>
+      <div class="stat-card"><div class="label">작업가능률</div><div class="value">${fmtNum(s.workableRate*100,1)}<small> %</small></div></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>비작업 사유 구성</h3></div>
+      <div class="grid grid-3">
+        <div class="stat-card"><div class="label">주말</div><div class="value">${s.byReason.weekend||0}<small> 일</small></div></div>
+        <div class="stat-card"><div class="label">공휴일</div><div class="value">${s.byReason.holiday||0}<small> 일</small></div></div>
+        <div class="stat-card"><div class="label">기상 사유</div><div class="value">${s.byReason.weather||0}<small> 일</small></div></div>
+      </div>
+      <div class="notice" style="margin-top:14px;">중복 사유(예: 주말이면서 강우) 발생일 ${s.duplicateOverlap}일은 비작업일수에 1일로만 반영되며, 위 사유별 합계는 중복 포함 값입니다.</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>월별 작업 가능성</h3></div>
+      <table>
+        <thead><tr><th>월</th><th class="num">총 일수</th><th class="num">작업가능</th><th class="num">비작업</th><th class="num">가능률</th></tr></thead>
+        <tbody>
+          ${s.monthly.map(m=>`<tr>
+            <td class="mono">${m.month}</td>
+            <td class="num mono">${m.total}</td>
+            <td class="num mono">${m.working}</td>
+            <td class="num mono">${m.nonWorking}</td>
+            <td class="num mono">${fmtNum(m.total? m.working/m.total*100:0,1)}%</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>일자별 비작업 상세 (최근 30건)</h3>
+        <span class="hint"><a href="duration-weather.html">비작업일수 산정 전체 보기 →</a></span>
+      </div>
+      <table>
+        <thead><tr><th>일자</th><th>요일</th><th>사유</th></tr></thead>
+        <tbody>
+          ${days.filter(d=>!d.workable).slice(0,30).map(d=>`<tr>
+            <td class="mono">${d.date}</td>
+            <td>${['일','월','화','수','목','금','토'][parseDate(d.date).getDay()]}</td>
+            <td>${d.reasons.map(r=>`<span class="tag ${r.type==='weekend'?'tag-mute':r.type==='holiday'?'tag-red':'tag-amber'}">${r.label}</span>`).join(' ')}</td>
+          </tr>`).join('') || '<tr><td colspan="3"><div class="empty">비작업일이 없습니다.</div></td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+});
+</script>
+</body>
+</html>

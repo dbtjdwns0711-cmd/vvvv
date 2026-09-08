@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin · 공종·기준·표준작업량 · WeatherWorks</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app-shell">
+  <aside id="sidebar"></aside>
+  <div class="main">
+    <header id="topbar"></header>
+    <main id="page-content">
+      <div class="page-head flex-between">
+        <div>
+          <h2>Admin · 공종 및 작업가능 기준</h2>
+          <div class="desc">공종을 등록하고, 공종별 작업가능 기상 기준(강우·강설·풍속·기온)을 설정합니다. 이 값은 비작업일수 산정에 직접 사용됩니다.</div>
+        </div>
+        <button class="btn btn-primary" onclick="openForm()">+ 공종 추가</button>
+      </div>
+
+      <div class="notice">아래 기준값은 예시이며 공인된 규정이 아닙니다. 현장 계약조건, 표준시방서, 발주처 지침에 맞게 조정하십시오.</div>
+
+      <div class="panel">
+        <table>
+          <thead><tr><th>공종</th><th>분류</th><th class="num">강우(mm)</th><th class="num">풍속(m/s)</th><th class="num">강설(cm)</th><th class="num">최저기온(℃)</th><th class="num">최고기온(℃)</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+
+      <div class="panel" id="form-panel" style="display:none;">
+        <div class="panel-head"><h3 id="form-title">공종 추가</h3></div>
+        <div class="field-row">
+          <div class="field"><label>공종명</label><input id="f-name" type="text" placeholder="예) 토공사"></div>
+          <div class="field"><label>분류</label><input id="f-category" type="text" placeholder="예) 토목"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>강우 한계(mm)</label><input id="f-rain" type="number" step="0.1"></div>
+          <div class="field"><label>풍속 한계(m/s)</label><input id="f-wind" type="number" step="0.1"></div>
+          <div class="field"><label>강설 한계(cm)</label><input id="f-snow" type="number" step="0.1"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>최저기온(℃)</label><input id="f-tmin" type="number" step="0.1"></div>
+          <div class="field"><label>최고기온(℃)</label><input id="f-tmax" type="number" step="0.1"></div>
+        </div>
+        <div class="field"><label>비고</label><textarea id="f-note" rows="2"></textarea></div>
+        <div class="row gap-8">
+          <button class="btn btn-primary" onclick="save()">저장</button>
+          <button class="btn" onclick="closeForm()">취소</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>공휴일 관리</h3></div>
+        <div class="field-row">
+          <div class="field"><label>날짜</label><input id="h-date" type="date"></div>
+          <div class="field"><label>명칭</label><input id="h-name" type="text" placeholder="예) 임시공휴일"></div>
+          <div class="field" style="align-self:flex-end;"><button class="btn" onclick="addHoliday()">추가</button></div>
+        </div>
+        <table>
+          <thead><tr><th>날짜</th><th>명칭</th><th></th></tr></thead>
+          <tbody id="holiday-rows"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/util.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/sw-catalog.js"></script>
+<script>
+let editingId = null;
+
+function render(){
+  const db = loadDB();
+  document.getElementById('rows').innerHTML = db.workTypes.map(wt=>{
+    const c = db.criteria.find(x=>x.workTypeId===wt.id) || {};
+    return `<tr>
+      <td><b>${wt.name}</b></td><td>${wt.category||'-'}</td>
+      <td class="num mono">${c.rainMaxMm ?? '-'}</td><td class="num mono">${c.windMaxMs ?? '-'}</td>
+      <td class="num mono">${c.snowMaxCm ?? '-'}</td><td class="num mono">${c.tempMinC ?? '-'}</td><td class="num mono">${c.tempMaxC ?? '-'}</td>
+      <td class="row gap-8">
+        <button class="btn btn-sm" onclick="edit('${wt.id}')">수정</button>
+        <button class="btn btn-sm btn-danger" onclick="remove('${wt.id}')">삭제</button>
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="8"><div class="empty">등록된 공종이 없습니다.</div></td></tr>';
+
+  document.getElementById('holiday-rows').innerHTML = db.holidays
+    .sort((a,b)=>a.date.localeCompare(b.date))
+    .map(h=>`<tr><td class="mono">${h.date}</td><td>${h.name}</td>
+      <td><button class="btn btn-sm btn-danger" onclick="removeHoliday('${h.date}')">삭제</button></td></tr>`).join('');
+}
+
+function openForm(){
+  editingId = null;
+  document.getElementById('form-title').textContent = '공종 추가';
+  ['f-name','f-category','f-rain','f-wind','f-snow','f-tmin','f-tmax','f-note'].forEach(id=> document.getElementById(id).value = '');
+  document.getElementById('form-panel').style.display = 'block';
+}
+function closeForm(){ document.getElementById('form-panel').style.display = 'none'; }
+
+function edit(id){
+  const db = loadDB();
+  const wt = db.workTypes.find(w=>w.id===id);
+  const c = db.criteria.find(x=>x.workTypeId===id) || {};
+  if(!wt) return;
+  editingId = id;
+  document.getElementById('form-title').textContent = '공종 수정';
+  document.getElementById('f-name').value = wt.name;
+  document.getElementById('f-category').value = wt.category||'';
+  document.getElementById('f-rain').value = c.rainMaxMm ?? '';
+  document.getElementById('f-wind').value = c.windMaxMs ?? '';
+  document.getElementById('f-snow').value = c.snowMaxCm ?? '';
+  document.getElementById('f-tmin').value = c.tempMinC ?? '';
+  document.getElementById('f-tmax').value = c.tempMaxC ?? '';
+  document.getElementById('f-note').value = c.note || '';
+  document.getElementById('form-panel').style.display = 'block';
+}
+
+function save(){
+  const name = document.getElementById('f-name').value.trim();
+  if(!name){ alert('공종명을 입력하세요.'); return; }
+  const db = loadDB();
+  let wtId = editingId;
+  const wtPayload = {name, category: document.getElementById('f-category').value.trim()};
+  if(editingId){
+    const idx = db.workTypes.findIndex(w=>w.id===editingId);
+    db.workTypes[idx] = {...db.workTypes[idx], ...wtPayload};
+  } else {
+    wtId = uid('wt');
+    db.workTypes.push({id: wtId, ...wtPayload});
+  }
+  const cPayload = {
+    workTypeId: wtId,
+    rainMaxMm: Number(document.getElementById('f-rain').value)||0,
+    windMaxMs: Number(document.getElementById('f-wind').value)||0,
+    snowMaxCm: Number(document.getElementById('f-snow').value)||0,
+    tempMinC: Number(document.getElementById('f-tmin').value)||0,
+    tempMaxC: Number(document.getElementById('f-tmax').value)||0,
+    note: document.getElementById('f-note').value.trim(),
+  };
+  const cIdx = db.criteria.findIndex(c=>c.workTypeId===wtId);
+  if(cIdx>=0) db.criteria[cIdx] = cPayload; else db.criteria.push(cPayload);
+
+  saveDB(db); closeForm(); render();
+}
+
+function remove(id){
+  if(!confirm('이 공종을 삭제하시겠습니까? 현장에 연결된 경우 산정에서 제외됩니다.')) return;
+  const db = loadDB();
+  db.workTypes = db.workTypes.filter(w=>w.id!==id);
+  db.criteria = db.criteria.filter(c=>c.workTypeId!==id);
+  saveDB(db); render();
+}
+
+function addHoliday(){
+  const date = document.getElementById('h-date').value;
+  const name = document.getElementById('h-name').value.trim();
+  if(!date || !name){ alert('날짜와 명칭을 입력하세요.'); return; }
+  const db = loadDB();
+  if(db.holidays.some(h=>h.date===date)){ alert('이미 등록된 날짜입니다.'); return; }
+  db.holidays.push({date, name});
+  saveDB(db);
+  document.getElementById('h-date').value = '';
+  document.getElementById('h-name').value = '';
+  render();
+}
+function removeHoliday(date){
+  const db = loadDB();
+  db.holidays = db.holidays.filter(h=>h.date!==date);
+  saveDB(db); render();
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  renderTopbar('Admin · 공종·기준·표준작업량');
+  render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>작업일수 산정 · WeatherWorks</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app-shell">
+  <aside id="sidebar"></aside>
+  <div class="main">
+    <header id="topbar"></header>
+    <main id="page-content">
+      <div class="page-head">
+        <h2>작업일수 산정</h2>
+        <div class="desc">공종별 총 물량 ÷ 표준작업량으로 필요 작업일수를 산정합니다. 물량 입력은 <a href="quantity.html" style="color:var(--primary); text-decoration:underline;">공사 물량·생산성 산정</a>에서 관리합니다.</div>
+      </div>
+
+      <div class="panel">
+        <table>
+          <thead><tr><th>공종</th><th class="num">총 물량</th><th class="num">표준작업량(1일)</th><th class="num">필요 작업일수</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+
+      <div class="grid grid-3">
+        <div class="stat-card"><div class="label">합계 필요 작업일수</div><div class="value" id="v-workdays">-</div></div>
+        <div class="stat-card"><div class="label">기간 내 산정 작업가능일</div><div class="value" id="v-available">-</div></div>
+        <div class="stat-card"><div class="label">여유/부족</div><div class="value" id="v-margin">-</div></div>
+      </div>
+      <div class="notice" id="margin-note" style="margin-top:16px;"></div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/util.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/sw-catalog.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', ()=>{
+  renderTopbar('작업일수 산정', {showProjectSelect:true});
+  const db = loadDB();
+  const pid = getCurrentProjectId(db);
+  const p = db.projects.find(x=>x.id===pid);
+  const list = db.quantities.filter(q=>q.projectId===pid);
+
+  document.getElementById('rows').innerHTML = list.map(q=>{
+    const wt = db.workTypes.find(w=>w.id===q.workTypeId);
+    const days = q.dailyOutput ? Math.ceil(q.quantity/q.dailyOutput) : 0;
+    return `<tr>
+      <td>${wt?wt.name:'-'}</td>
+      <td class="num mono">${fmtNum(q.quantity,0)} ${q.unit||''}</td>
+      <td class="num mono">${fmtNum(q.dailyOutput,2)}</td>
+      <td class="num mono">${days}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="4"><div class="empty">등록된 물량이 없습니다. 공사 물량·생산성 산정에서 추가하세요.</div></td></tr>';
+
+  const totalWorkDays = list.reduce((s,q)=> s + (q.dailyOutput ? Math.ceil(q.quantity/q.dailyOutput) : 0), 0);
+  document.getElementById('v-workdays').innerHTML = totalWorkDays + '<small> 일</small>';
+
+  if(p){
+    const days = computeDailyStatus(p, db);
+    const summary = summarizeStatus(days);
+    document.getElementById('v-available').innerHTML = summary.working + '<small> 일</small>';
+    const margin = summary.working - totalWorkDays;
+    document.getElementById('v-margin').innerHTML = `${margin>=0?'+':''}${margin}<small> 일</small>`;
+    document.getElementById('v-margin').style.color = margin>=0 ? 'var(--green)' : 'var(--red)';
+    document.getElementById('margin-note').textContent = margin>=0
+      ? `현재 산정 기간 내 작업가능일이 필요 작업일수보다 ${margin}일 여유가 있습니다.`
+      : `현재 산정 기간 내 작업가능일이 필요 작업일수보다 ${Math.abs(margin)}일 부족합니다. 기간 연장 또는 물량·인력 재조정을 검토하세요.`;
+  }
+});
+</script>
+</body>
+</html>

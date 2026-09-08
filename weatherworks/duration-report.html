@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>산정 결과 보고서 · WeatherWorks</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  @media print{
+    #sidebar, #topbar, .no-print{ display:none !important; }
+    #page-content{ padding:0; max-width:none; }
+    body{ background:#fff; }
+  }
+</style>
+</head>
+<body>
+<div id="app-shell">
+  <aside id="sidebar"></aside>
+  <div class="main">
+    <header id="topbar"></header>
+    <main id="page-content">
+      <div class="page-head flex-between">
+        <div>
+          <h2>산정 결과 보고서</h2>
+          <div class="desc">공사기간 산정 결과를 출력용 문서로 정리합니다.</div>
+        </div>
+        <button class="btn btn-primary no-print" onclick="window.print()">인쇄 / PDF 저장</button>
+      </div>
+
+      <div class="panel" id="report-body">불러오는 중...</div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/util.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/sw-catalog.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', ()=>{
+  renderTopbar('산정 결과 보고서', {showProjectSelect:true});
+  const db = loadDB();
+  const pid = getCurrentProjectId(db);
+  const p = db.projects.find(x=>x.id===pid);
+  const body = document.getElementById('report-body');
+  if(!p){ body.innerHTML = '<div class="empty">현장을 먼저 등록하세요.</div>'; return; }
+
+  const list = db.quantities.filter(q=>q.projectId===pid);
+  const requiredWorkDays = list.reduce((s,q)=> s + (q.dailyOutput ? Math.ceil(q.quantity/q.dailyOutput) : 0), 0);
+  const est = estimateDuration(p, db, requiredWorkDays || undefined);
+  const contractDays = p.contractDays || daysBetween(p.startDate,p.endDate);
+  const diff = contractDays - est.estimatedCalendarDays;
+  const today = fmtDate(new Date());
+
+  body.innerHTML = `
+    <h3 style="font-size:18px;">${p.name} 공사기간 산정 결과 보고서</h3>
+    <div class="muted mono" style="font-size:12px; margin:4px 0 20px;">작성일 ${today} · WeatherWorks</div>
+
+    <table style="margin-bottom:20px;">
+      <tbody>
+        <tr><td style="width:160px;" class="muted">현장명</td><td>${p.name}</td></tr>
+        <tr><td class="muted">위치</td><td>${p.location||'-'}</td></tr>
+        <tr><td class="muted">공사기간</td><td class="mono">${p.startDate} ~ ${p.endDate}</td></tr>
+        <tr><td class="muted">계약 공기</td><td class="mono">${contractDays}일</td></tr>
+      </tbody>
+    </table>
+
+    <h4 style="font-size:14px; margin-bottom:8px;">1. 산정 결과 요약</h4>
+    <table style="margin-bottom:20px;">
+      <thead><tr><th>구분</th><th class="num">일수</th></tr></thead>
+      <tbody>
+        <tr><td>필요 작업일수 (물량÷표준작업량)</td><td class="num mono">${est.requiredWorkDays}일</td></tr>
+        <tr><td>예상 비작업일수 (기상·공휴일·중복 반영)</td><td class="num mono">${est.nonWorkingDays}일</td></tr>
+        <tr><td><b>예상 소요 공기</b></td><td class="num mono"><b>${est.estimatedCalendarDays}일</b></td></tr>
+        <tr><td>계약 공기 대비</td><td class="num mono">${diff>=0 ? '여유 '+diff+'일' : '초과 '+Math.abs(diff)+'일'}</td></tr>
+      </tbody>
+    </table>
+
+    <h4 style="font-size:14px; margin-bottom:8px;">2. 비작업일수 사유별 내역</h4>
+    <table style="margin-bottom:20px;">
+      <thead><tr><th>사유</th><th class="num">일수</th></tr></thead>
+      <tbody>
+        <tr><td>주말</td><td class="num mono">${est.summary.byReason.weekend||0}일</td></tr>
+        <tr><td>공휴일</td><td class="num mono">${est.summary.byReason.holiday||0}일</td></tr>
+        <tr><td>기상 사유</td><td class="num mono">${est.summary.byReason.weather||0}일</td></tr>
+        <tr><td>사유 중복일 (총계에는 1일로만 반영됨)</td><td class="num mono">${est.summary.duplicateOverlap}일</td></tr>
+      </tbody>
+    </table>
+
+    <h4 style="font-size:14px; margin-bottom:8px;">3. 월별 작업 가능성</h4>
+    <table style="margin-bottom:20px;">
+      <thead><tr><th>월</th><th class="num">총 일수</th><th class="num">작업가능</th><th class="num">비작업</th></tr></thead>
+      <tbody>
+        ${est.summary.monthly.map(m=>`<tr><td class="mono">${m.month}</td><td class="num mono">${m.total}</td><td class="num mono">${m.working}</td><td class="num mono">${m.nonWorking}</td></tr>`).join('')}
+      </tbody>
+    </table>
+
+    <h4 style="font-size:14px; margin-bottom:8px;">4. 결론</h4>
+    <p style="font-size:13px; line-height:1.8; color:var(--ink-soft);">
+      ${diff>=0
+        ? `산정 결과 예상 소요 공기는 ${est.estimatedCalendarDays}일로, 계약 공기(${contractDays}일) 이내에 완료 가능할 것으로 예상됩니다.`
+        : `산정 결과 예상 소요 공기는 ${est.estimatedCalendarDays}일로, 계약 공기(${contractDays}일)를 ${Math.abs(diff)}일 초과할 것으로 예상되어 공기 연장 또는 비작업일수 저감 대책 검토가 필요합니다.`}
+      본 보고서는 업로드된 기상 데이터와 설정된 작업가능 기준을 바탕으로 한 예상값이며, 실제 공사기간은 현장 여건에 따라 달라질 수 있습니다.
+    </p>
+  `;
+});
+</script>
+</body>
+</html>
