@@ -3,100 +3,192 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>현장 상세 분석 · WeatherWorks</title>
+<title>현장별 상세분석 및 공정표 · WeatherWorks</title>
 <link rel="stylesheet" href="css/style.css">
+<style>
+  .input-group { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; align-items: flex-end; }
+  .input-item { display: flex; flex-direction: column; gap: 4px; }
+  .input-item label { font-size: 12px; font-weight: bold; color: var(--ink-soft); }
+  .input-item input { padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+  .gantt-row { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid #eee; }
+  .gantt-title { width: 180px; flex-shrink: 0; font-size: 13px; font-weight: 600; }
+  .gantt-sub { font-size: 11px; color: #888; }
+  .gantt-track { flex-grow: 1; position: relative; height: 26px; background: #f1f3f5; border-radius: 13px; margin: 0 15px; }
+  .gantt-bar-box { position: absolute; height: 100%; background: #dbeafe; border-radius: 13px; overflow: hidden; border: 1px solid #93c5fd; }
+  .gantt-bar-fill { height: 100%; background: #2563eb; transition: width 0.3s ease; }
+  .gantt-rate { width: 60px; text-align: right; flex-shrink: 0; font-size: 13px; font-weight: bold; color: #2563eb; }
+  .btn-del { margin-left: 10px; padding: 4px 8px; font-size: 11px; border: 1px solid #ffcdd2; background: #ffebee; color: #c62828; border-radius: 4px; cursor: pointer; }
+</style>
 </head>
 <body>
 <div id="app-shell">
   <aside id="sidebar"></aside>
   <div class="main">
     <header id="topbar"></header>
-    <main id="page-content" id="content-root">
-      <div id="body-slot"></div>
+    <main id="page-content">
+      <div class="page-head">
+        <h2>현장별 상세분석 (공정 진행 현황)</h2>
+        <div class="desc">공종별 시작일/종료일 및 진행률을 직접 입력하여 실시간 간트차트로 관리합니다.</div>
+      </div>
+
+      <!-- 1. 직접 입력하는 영역 -->
+      <div class="panel">
+        <div class="panel-head"><h3>새 공종 일정 등록</h3></div>
+        <div class="input-group">
+          <div class="input-item">
+            <label>공종명</label>
+            <input type="text" id="taskName" placeholder="예: 토공사 터파기" style="width: 170px;">
+          </div>
+          <div class="input-item">
+            <label>시작일</label>
+            <input type="date" id="taskStart">
+          </div>
+          <div class="input-item">
+            <label>종료일</label>
+            <input type="date" id="taskEnd">
+          </div>
+          <div class="input-item">
+            <label>진행률(0~100%)</label>
+            <input type="number" id="taskProgress" min="0" max="100" value="0" style="width: 100px;">
+          </div>
+          <button class="btn btn-primary" onclick="addTask()" style="height: 36px; padding: 0 16px;">+ 공정 추가</button>
+        </div>
+      </div>
+
+      <!-- 2. 간트차트 출력 영역 -->
+      <div class="panel">
+        <div class="panel-head flex-between">
+          <h3>공정 진행 간트차트 (Gantt Chart)</h3>
+          <span class="hint">전체 평균 공정률: <strong id="overall-rate" style="color:#2563eb;">0%</strong></span>
+        </div>
+        
+        <div id="gantt-header" style="display:flex; border-bottom: 2px solid #ddd; padding: 8px 0; font-weight: bold; font-size: 13px; color: #555;">
+          <div style="width: 180px; flex-shrink: 0;">공종 정보</div>
+          <div style="flex-grow: 1; margin: 0 15px;" id="timeline-range-text">타임라인</div>
+          <div style="width: 60px; text-align: right; flex-shrink: 0;">진행률</div>
+          <div style="width: 40px; flex-shrink: 0;"></div>
+        </div>
+
+        <div id="gantt-body">
+          <!-- 입력할 때마다 여기에 막대 그래프가 동적으로 그려집니다 -->
+        </div>
+      </div>
     </main>
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="js/db.js"></script>
 <script src="js/seed.js"></script>
 <script src="js/util.js"></script>
 <script src="js/calc.js"></script>
 <script src="js/nav.js"></script>
-<script src="js/sw-catalog.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', ()=>{
-  const db = loadDB();
-  const id = qs('id');
-  const p = db.projects.find(x=>x.id===id);
-  const slot = document.getElementById('body-slot');
+// 로컬 스토리지에 저장하여 새로고침해도 유지되도록 구성
+let taskList = JSON.parse(localStorage.getItem('my_gantt_tasks') || '[]');
 
-  if(!p){
-    renderTopbar('현장 상세 분석');
-    slot.innerHTML = `<div class="page-head"><h2>현장을 찾을 수 없습니다</h2></div>
-      <a class="btn btn-primary" href="projects.html">현장 목록으로</a>`;
+// 초기 예시 데이터가 없으면 기본 데이터 2개 주입
+if (taskList.length === 0) {
+  taskList = [
+    { id: 1, name: "토공사 (터파기)", start: "2026-09-01", end: "2026-09-20", progress: 80 },
+    { id: 2, name: "철근콘크리트 골조", start: "2026-09-15", end: "2026-10-15", progress: 30 }
+  ];
+}
+
+// 공정 추가 함수
+function addTask() {
+  const name = document.getElementById('taskName').value.trim();
+  const start = document.getElementById('taskStart').value;
+  const end = document.getElementById('taskEnd').value;
+  const progress = parseInt(document.getElementById('taskProgress').value, 10);
+
+  if (!name || !start || !end) {
+    alert("공종명, 시작일, 종료일을 모두 입력해 주세요.");
+    return;
+  }
+  if (start > end) {
+    alert("종료일은 시작일보다 빠를 수 없습니다.");
     return;
   }
 
-  renderTopbar('현장 상세 분석 · ' + p.name);
-  const days = computeDailyStatus(p, db);
-  const s = summarizeStatus(days);
+  taskList.push({
+    id: Date.now(),
+    name,
+    start,
+    end,
+    progress: isNaN(progress) ? 0 : Math.min(100, Math.max(0, progress))
+  });
 
-  slot.innerHTML = `
-    <div class="page-head">
-      <h2>${p.name}</h2>
-      <div class="desc">${p.location||''} · ${p.startDate} ~ ${p.endDate} · 계약공기 ${p.contractDays||'-'}일</div>
-    </div>
-    <div class="grid grid-4">
-      <div class="stat-card"><div class="label">총 공사기간</div><div class="value">${s.total}<small> 일</small></div></div>
-      <div class="stat-card"><div class="label">작업가능일</div><div class="value">${s.working}<small> 일</small></div></div>
-      <div class="stat-card"><div class="label">비작업일수</div><div class="value">${s.nonWorking}<small> 일</small></div></div>
-      <div class="stat-card"><div class="label">작업가능률</div><div class="value">${fmtNum(s.workableRate*100,1)}<small> %</small></div></div>
-    </div>
+  // 저장 및 화면 갱신
+  localStorage.setItem('my_gantt_tasks', JSON.stringify(taskList));
+  document.getElementById('taskName').value = '';
+  document.getElementById('taskProgress').value = '0';
+  renderGantt();
+}
 
-    <div class="panel">
-      <div class="panel-head"><h3>비작업 사유 구성</h3></div>
-      <div class="grid grid-3">
-        <div class="stat-card"><div class="label">주말</div><div class="value">${s.byReason.weekend||0}<small> 일</small></div></div>
-        <div class="stat-card"><div class="label">공휴일</div><div class="value">${s.byReason.holiday||0}<small> 일</small></div></div>
-        <div class="stat-card"><div class="label">기상 사유</div><div class="value">${s.byReason.weather||0}<small> 일</small></div></div>
+// 공정 삭제 함수
+function deleteTask(id) {
+  taskList = taskList.filter(t => t.id !== id);
+  localStorage.setItem('my_gantt_tasks', JSON.stringify(taskList));
+  renderGantt();
+}
+
+// 간트차트 막대 렌더링 함수
+function renderGantt() {
+  const body = document.getElementById('gantt-body');
+  const rateEl = document.getElementById('overall-rate');
+  const timelineText = document.getElementById('timeline-range-text');
+
+  if (!taskList.length) {
+    body.innerHTML = '<div style="padding: 30px; text-align: center; color: #888;">등록된 공정이 없습니다. 위에서 공정을 입력해 추가해 보세요.</div>';
+    rateEl.textContent = '0%';
+    timelineText.textContent = '타임라인';
+    return;
+  }
+
+  // 전체 공정의 최소 시작일과 최대 종료일 구하기
+  const starts = taskList.map(t => new Date(t.start).getTime());
+  const ends = taskList.map(t => new Date(t.end).getTime());
+  const minTime = Math.min(...starts);
+  const maxTime = Math.max(...ends);
+  const totalRange = maxTime - minTime || 86400000; // 동일 날짜 방지
+
+  // 전체 평균 진행률 계산
+  const avg = Math.round(taskList.reduce((sum, t) => sum + t.progress, 0) / taskList.length);
+  rateEl.textContent = `${avg}%`;
+
+  const minDateStr = new Date(minTime).toISOString().slice(0, 10);
+  const maxDateStr = new Date(maxTime).toISOString().slice(0, 10);
+  timelineText.textContent = `타임라인 (${minDateStr} ~ ${maxDateStr})`;
+
+  body.innerHTML = taskList.map(t => {
+    const sTime = new Date(t.start).getTime();
+    const eTime = new Date(t.end).getTime();
+
+    // 시작 위치(left%)와 너비(width%) 계산
+    const left = Math.max(0, ((sTime - minTime) / totalRange) * 100);
+    const width = Math.max(3, Math.min(100 - left, ((eTime - sTime + 86400000) / totalRange) * 100));
+
+    return `
+      <div class="gantt-row">
+        <div class="gantt-title">
+          <div>${t.name}</div>
+          <div class="gantt-sub">${t.start} ~ ${t.end}</div>
+        </div>
+        <div class="gantt-track">
+          <div class="gantt-bar-box" style="left: ${left}%; width: ${width}%;">
+            <div class="gantt-bar-fill" style="width: ${t.progress}%;"></div>
+          </div>
+        </div>
+        <div class="gantt-rate">${t.progress}%</div>
+        <button class="btn-del" onclick="deleteTask(${t.id})">삭제</button>
       </div>
-      <div class="notice" style="margin-top:14px;">중복 사유(예: 주말이면서 강우) 발생일 ${s.duplicateOverlap}일은 비작업일수에 1일로만 반영되며, 위 사유별 합계는 중복 포함 값입니다.</div>
-    </div>
+    `;
+  }).join('');
+}
 
-    <div class="panel">
-      <div class="panel-head"><h3>월별 작업 가능성</h3></div>
-      <table>
-        <thead><tr><th>월</th><th class="num">총 일수</th><th class="num">작업가능</th><th class="num">비작업</th><th class="num">가능률</th></tr></thead>
-        <tbody>
-          ${s.monthly.map(m=>`<tr>
-            <td class="mono">${m.month}</td>
-            <td class="num mono">${m.total}</td>
-            <td class="num mono">${m.working}</td>
-            <td class="num mono">${m.nonWorking}</td>
-            <td class="num mono">${fmtNum(m.total? m.working/m.total*100:0,1)}%</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="panel">
-      <div class="panel-head">
-        <h3>일자별 비작업 상세 (최근 30건)</h3>
-        <span class="hint"><a href="duration-weather.html">비작업일수 산정 전체 보기 →</a></span>
-      </div>
-      <table>
-        <thead><tr><th>일자</th><th>요일</th><th>사유</th></tr></thead>
-        <tbody>
-          ${days.filter(d=>!d.workable).slice(0,30).map(d=>`<tr>
-            <td class="mono">${d.date}</td>
-            <td>${['일','월','화','수','목','금','토'][parseDate(d.date).getDay()]}</td>
-            <td>${d.reasons.map(r=>`<span class="tag ${r.type==='weekend'?'tag-mute':r.type==='holiday'?'tag-red':'tag-amber'}">${r.label}</span>`).join(' ')}</td>
-          </tr>`).join('') || '<tr><td colspan="3"><div class="empty">비작업일이 없습니다.</div></td></tr>'}
-        </tbody>
-      </table>
-    </div>
-  `;
+document.addEventListener('DOMContentLoaded', () => {
+  renderTopbar('현장별 상세분석', { showProjectSelect: true });
+  renderGantt();
 });
 </script>
 </body>
