@@ -3,16 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>현장별 상세분석 · WeatherWorks</title>
+<title>현장별 공정표 · WeatherWorks</title>
 <link rel="stylesheet" href="css/style.css">
 <style>
+  .input-group { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; align-items: flex-end; }
+  .input-item { display: flex; flex-direction: column; gap: 4px; }
+  .input-item label { font-size: 12px; font-weight: bold; color: var(--ink-soft); }
+  .input-item input { padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
   .gantt-row { display: flex; align-items: center; padding: 12px 0; border-bottom: 1px solid #f0f0f0; }
   .gantt-title { width: 220px; flex-shrink: 0; font-size: 13px; font-weight: 600; }
-  .gantt-sub { font-size: 11px; color: #888; margin-top: 2px; }
+  .gantt-sub { font-size: 11px; color: #888; }
   .gantt-track { flex-grow: 1; position: relative; height: 26px; background: #f1f3f5; border-radius: 13px; margin: 0 15px; }
   .gantt-bar-box { position: absolute; height: 100%; background: #dbeafe; border-radius: 13px; overflow: hidden; border: 1px solid #93c5fd; }
   .gantt-bar-fill { height: 100%; background: #2563eb; transition: width 0.3s ease; }
-  .gantt-rate { width: 70px; text-align: right; flex-shrink: 0; font-size: 13px; font-weight: bold; color: #2563eb; }
+  .gantt-rate { width: 60px; text-align: right; flex-shrink: 0; font-size: 13px; font-weight: bold; color: #2563eb; }
+  .btn-del { margin-left: 10px; padding: 4px 8px; font-size: 11px; border: 1px solid #ffcdd2; background: #ffebee; color: #c62828; border-radius: 4px; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -21,35 +26,50 @@
   <div class="main">
     <header id="topbar"></header>
     <main id="page-content">
-      <div class="page-head">
-        <h2>현장별 상세분석 (공정 진행 현황)</h2>
-        <div class="desc">선택된 현장의 공사 물량·생산성 산정 데이터 및 공기 기준에 따른 간트차트 공정 현황을 조회합니다.</div>
+      <div class="page-head flex-between">
+        <div>
+          <h2 id="proj-title">현장 공정 상세분석</h2>
+          <div class="desc" id="proj-desc">현장의 공정별 일정 및 진행 상태를 개별 관리합니다.</div>
+        </div>
+        <a href="analysis.html" class="btn" style="border:1px solid #ccc; padding:6px 12px; font-size:12px;">← 현장 목록으로</a>
       </div>
 
-      <!-- 현장 기본 요약 정보 -->
-      <div class="panel" style="margin-bottom: 20px;">
-        <div class="panel-head flex-between">
-          <h3 id="proj-name">현장 공정 요약</h3>
-          <span class="hint" id="proj-period"></span>
-        </div>
-        <div style="display:flex; gap:20px; font-size:13px; color:var(--ink-soft); padding: 5px 0;">
-          <div>관측지점: <strong id="proj-station" style="color:#222;">-</strong></div>
-          <div>총 공사기간: <strong id="proj-duration" style="color:#222;">0일</strong></div>
-          <div>전체 평균 공정률: <strong id="overall-rate" style="color:#2563eb; font-size:15px;">0%</strong></div>
+      <!-- 해당 현장 공정 추가 폼 -->
+      <div class="panel">
+        <div class="panel-head"><h3>[<span id="target-proj-name"></span>] 공정 일정 등록</h3></div>
+        <div class="input-group">
+          <div class="input-item">
+            <label>공종명</label>
+            <input type="text" id="taskName" placeholder="예: 토공사 터파기" style="width: 170px;">
+          </div>
+          <div class="input-item">
+            <label>시작일</label>
+            <input type="date" id="taskStart">
+          </div>
+          <div class="input-item">
+            <label>종료일</label>
+            <input type="date" id="taskEnd">
+          </div>
+          <div class="input-item">
+            <label>진행률(0~100%)</label>
+            <input type="number" id="taskProgress" min="0" max="100" value="0" style="width: 90px;">
+          </div>
+          <button class="btn btn-primary" onclick="addTask()" style="height: 36px; padding: 0 16px;">+ 현장 공정 추가</button>
         </div>
       </div>
 
-      <!-- 간트차트 패널 -->
+      <!-- 해당 현장 간트차트 출력 -->
       <div class="panel">
         <div class="panel-head flex-between">
-          <h3>공정 진행 간트차트 (Gantt Chart)</h3>
-          <span class="hint" id="task-count-hint"></span>
+          <h3>공정 진행 간트차트</h3>
+          <span class="hint">전체 평균 공정률: <strong id="overall-rate" style="color:#2563eb;">0%</strong></span>
         </div>
         
-        <div id="gantt-header" style="display:flex; border-bottom: 2px solid #ddd; padding: 10px 0; font-weight: bold; font-size: 13px; color: #555;">
-          <div style="width: 220px; flex-shrink: 0;">공종 구분 (물량산출 연동)</div>
-          <div style="flex-grow: 1; margin: 0 15px;" id="timeline-range-text">공정 타임라인</div>
-          <div style="width: 70px; text-align: right; flex-shrink: 0;">공정률</div>
+        <div id="gantt-header" style="display:flex; border-bottom: 2px solid #ddd; padding: 8px 0; font-weight: bold; font-size: 13px; color: #555;">
+          <div style="width: 220px; flex-shrink: 0;">공종 정보</div>
+          <div style="flex-grow: 1; margin: 0 15px;" id="timeline-range-text">타임라인</div>
+          <div style="width: 60px; text-align: right; flex-shrink: 0;">진행률</div>
+          <div style="width: 45px; flex-shrink: 0;"></div>
         </div>
 
         <div id="gantt-body"></div>
@@ -64,98 +84,120 @@
 <script src="js/calc.js"></script>
 <script src="js/nav.js"></script>
 <script>
-function renderProjectGantt() {
-  const db = loadDB();
-  const pid = getCurrentProjectId(db);
-  const project = db.projects.find(x => x.id === pid) || db.projects[0];
+let currentProjectId = "";
+let allTasksByProject = JSON.parse(localStorage.getItem('my_project_tasks_map') || '{}');
 
+// 기본 목업 데이터 (현장별 최초 1회 생성)
+if (Object.keys(allTasksByProject).length === 0) {
+  allTasksByProject = {
+    "p1": [
+      { id: 101, name: "터파기 및 흙막이", start: "2026-01-05", end: "2026-04-30", progress: 100 },
+      { id: 102, name: "지하 골조공사", start: "2026-04-15", end: "2026-08-31", progress: 60 },
+      { id: 103, name: "지상층 골조공사", start: "2026-08-01", end: "2026-12-18", progress: 15 }
+    ],
+    "p2": [
+      { id: 201, name: "지장물 이설 및 벌목", start: "2026-03-02", end: "2026-05-31", progress: 100 },
+      { id: 202, name: "절·성토 토공작업", start: "2026-05-15", end: "2026-08-31", progress: 85 },
+      { id: 203, name: "아스콘 포장 및 배수관로", start: "2026-08-15", end: "2026-11-30", progress: 40 }
+    ]
+  };
+  localStorage.setItem('my_project_tasks_map', JSON.stringify(allTasksByProject));
+}
+
+function initPage() {
+  const db = loadDB();
+  const urlParams = new URLSearchParams(window.location.search);
+  currentProjectId = urlParams.get('id') || getCurrentProjectId(db) || (db.projects[0] ? db.projects[0].id : "p1");
+
+  const project = db.projects.find(x => x.id === currentProjectId) || db.projects[0];
   if (!project) return;
 
-  // 현장 정보 바인딩
-  document.getElementById('proj-name').textContent = project.name;
-  document.getElementById('proj-period').textContent = `${project.startDate} ~ ${project.endDate}`;
-  document.getElementById('proj-duration').textContent = `${daysBetween(project.startDate, project.endDate)}일`;
+  // 현장 정보 표시
+  document.getElementById('proj-title').textContent = `${project.name} 공정 상세분석`;
+  document.getElementById('target-proj-name').textContent = project.name;
+  document.getElementById('proj-desc').textContent = `${project.location || ''} (${project.startDate} ~ ${project.endDate})`;
 
-  const station = (db.stations || []).find(s => s.id === project.stationId);
-  document.getElementById('proj-station').textContent = station ? `${station.name} (${station.id})` : '지점 미지정';
+  // 날짜 기본값 설정
+  document.getElementById('taskStart').value = project.startDate;
+  document.getElementById('taskEnd').value = project.endDate;
 
-  // 물량산출(quantities) 또는 공종(workTypes)에서 공정 목록 도출
-  let tasks = [];
-  const projectQuantities = (db.quantities || []).filter(q => q.projectId === project.id);
+  renderGantt();
+}
 
-  if (projectQuantities.length > 0) {
-    // 물량 산정이 등록되어 있는 경우
-    let currentStart = new Date(project.startDate).getTime();
+function addTask() {
+  const name = document.getElementById('taskName').value.trim();
+  const start = document.getElementById('taskStart').value;
+  const end = document.getElementById('taskEnd').value;
+  const progress = parseInt(document.getElementById('taskProgress').value, 10);
 
-    tasks = projectQuantities.map((item, idx) => {
-      const days = item.calculatedDays || 15; // 산정된 일수 또는 기본 15일
-      const tStart = new Date(currentStart);
-      const tEnd = new Date(currentStart + (days - 1) * 86400000);
-      currentStart = tEnd.getTime() + 86400000; // 후속 공종 순차 배치
-
-      return {
-        name: item.itemSpec || item.workTypeName || `공종 #${idx + 1}`,
-        start: tStart.toISOString().slice(0, 10),
-        end: tEnd.toISOString().slice(0, 10),
-        days: days,
-        progress: item.progress !== undefined ? item.progress : Math.min(100, Math.max(0, 100 - idx * 25))
-      };
-    });
-  } else {
-    // 물량이 아직 등록되지 않은 기본 공종의 경우 가상 분할 생성
-    const pStart = new Date(project.startDate).getTime();
-    const pEnd = new Date(project.endDate).getTime();
-    const totalDays = Math.max(1, Math.round((pEnd - pStart) / 86400000));
-    const workTypes = (db.workTypes || []).filter(w => (project.workTypeIds || []).includes(w.id));
-    const count = workTypes.length || 1;
-    const splitDays = Math.floor(totalDays / count);
-
-    tasks = workTypes.map((wt, idx) => {
-      const tStart = new Date(pStart + idx * splitDays * 86400000);
-      const tEnd = new Date(idx === count - 1 ? pEnd : pStart + ((idx + 1) * splitDays - 1) * 86400000);
-      return {
-        name: wt.name,
-        start: tStart.toISOString().slice(0, 10),
-        end: tEnd.toISOString().slice(0, 10),
-        days: Math.round((tEnd - tStart) / 86400000) + 1,
-        progress: Math.min(100, Math.max(0, 90 - idx * 30))
-      };
-    });
-  }
-
-  // 간트차트 렌더링
-  const body = document.getElementById('gantt-body');
-  const rateEl = document.getElementById('overall-rate');
-  const countHint = document.getElementById('task-count-hint');
-  const timelineText = document.getElementById('timeline-range-text');
-
-  if (!tasks.length) {
-    body.innerHTML = '<div style="padding:30px; text-align:center; color:#888;">등록된 공종 정보가 없습니다. [공사 물량·생산성 산정]에서 물량을 추가해 주세요.</div>';
-    rateEl.textContent = '0%';
+  if (!name || !start || !end) {
+    alert("공종명, 시작일, 종료일을 모두 입력해 주세요.");
     return;
   }
 
-  countHint.textContent = `총 ${tasks.length}개 공종 연동`;
-  const pStart = new Date(project.startDate).getTime();
-  const pEnd = new Date(project.endDate).getTime();
-  const totalDuration = pEnd - pStart || 86400000;
+  if (!allTasksByProject[currentProjectId]) {
+    allTasksByProject[currentProjectId] = [];
+  }
 
-  const avgProgress = Math.round(tasks.reduce((sum, t) => sum + t.progress, 0) / tasks.length);
-  rateEl.textContent = `${avgProgress}%`;
-  timelineText.textContent = `공정 타임라인 (${project.startDate} ~ ${project.endDate})`;
+  allTasksByProject[currentProjectId].push({
+    id: Date.now(),
+    name,
+    start,
+    end,
+    progress: isNaN(progress) ? 0 : Math.min(100, Math.max(0, progress))
+  });
+
+  localStorage.setItem('my_project_tasks_map', JSON.stringify(allTasksByProject));
+  document.getElementById('taskName').value = '';
+  document.getElementById('taskProgress').value = '0';
+  renderGantt();
+}
+
+function deleteTask(id) {
+  if (!allTasksByProject[currentProjectId]) return;
+  allTasksByProject[currentProjectId] = allTasksByProject[currentProjectId].filter(t => t.id !== id);
+  localStorage.setItem('my_project_tasks_map', JSON.stringify(allTasksByProject));
+  renderGantt();
+}
+
+function renderGantt() {
+  const body = document.getElementById('gantt-body');
+  const rateEl = document.getElementById('overall-rate');
+  const timelineText = document.getElementById('timeline-range-text');
+  const tasks = allTasksByProject[currentProjectId] || [];
+
+  if (!tasks.length) {
+    body.innerHTML = '<div style="padding: 30px; text-align: center; color: #888;">이 현장에 등록된 공정이 없습니다. 위에서 새 공정을 등록해 보세요.</div>';
+    rateEl.textContent = '0%';
+    timelineText.textContent = '타임라인';
+    return;
+  }
+
+  const starts = tasks.map(t => new Date(t.start).getTime());
+  const ends = tasks.map(t => new Date(t.end).getTime());
+  const minTime = Math.min(...starts);
+  const maxTime = Math.max(...ends);
+  const totalRange = maxTime - minTime || 86400000;
+
+  const avg = Math.round(tasks.reduce((sum, t) => sum + t.progress, 0) / tasks.length);
+  rateEl.textContent = `${avg}%`;
+
+  const minDateStr = new Date(minTime).toISOString().slice(0, 10);
+  const maxDateStr = new Date(maxTime).toISOString().slice(0, 10);
+  timelineText.textContent = `타임라인 (${minDateStr} ~ ${maxDateStr})`;
 
   body.innerHTML = tasks.map(t => {
-    const tStart = new Date(t.start).getTime();
-    const tEnd = new Date(t.end).getTime();
+    const sTime = new Date(t.start).getTime();
+    const eTime = new Date(t.end).getTime();
 
-    const left = Math.max(0, ((tStart - pStart) / totalDuration) * 100);
-    const width = Math.max(2, Math.min(100 - left, ((tEnd - tStart + 86400000) / totalDuration) * 100));
+    const left = Math.max(0, ((sTime - minTime) / totalRange) * 100);
+    const width = Math.max(3, Math.min(100 - left, ((eTime - sTime + 86400000) / totalRange) * 100));
 
     return `
       <div class="gantt-row">
         <div class="gantt-title">
           <div>${t.name}</div>
-          <div class="gantt-sub">${t.start} ~ ${t.end} (${t.days}일 소요)</div>
+          <div class="gantt-sub">${t.start} ~ ${t.end}</div>
         </div>
         <div class="gantt-track">
           <div class="gantt-bar-box" style="left: ${left}%; width: ${width}%;">
@@ -163,6 +205,7 @@ function renderProjectGantt() {
           </div>
         </div>
         <div class="gantt-rate">${t.progress}%</div>
+        <button class="btn-del" onclick="deleteTask(${t.id})">삭제</button>
       </div>
     `;
   }).join('');
@@ -170,15 +213,7 @@ function renderProjectGantt() {
 
 document.addEventListener('DOMContentLoaded', () => {
   renderTopbar('현장별 상세분석', { showProjectSelect: true });
-  renderProjectGantt();
-
-  // 상단 현장 선택 셀렉트박스 변경 감지 시 차트 자동 갱신
-  const sel = document.getElementById('topbar-project-select');
-  if (sel) {
-    sel.addEventListener('change', () => {
-      renderProjectGantt();
-    });
-  }
+  initPage();
 });
 </script>
 </body>

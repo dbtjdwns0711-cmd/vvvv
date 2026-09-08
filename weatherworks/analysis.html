@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>현장별 상세 분석 · WeatherWorks</title>
 <link rel="stylesheet" href="css/style.css">
+<style>
+  .project-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
+  .project-card { 
+    background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 20px; 
+    cursor: pointer; transition: all 0.2s ease; text-decoration: none; color: inherit; display: block;
+  }
+  .project-card:hover { transform: translateY(-3px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); border-color: #2563eb; }
+  .project-card h3 { margin: 0 0 8px 0; font-size: 16px; font-weight: 700; color: #111; }
+  .project-card .meta { font-size: 13px; color: #666; margin-bottom: 12px; }
+  .project-card .badges { display: flex; gap: 8px; }
+  .badge-work { background: #e6f4ea; color: #137333; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+  .badge-nonwork { background: #fef7e0; color: #b06000; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+</style>
 </head>
 <body>
 <div id="app-shell">
@@ -14,40 +27,40 @@
     <main id="page-content">
       <div class="page-head">
         <h2>현장별 상세 분석</h2>
-        <div class="desc">분석할 현장을 선택하세요.</div>
+        <div class="desc">분석할 현장을 선택하세요. 클릭 시 해당 현장의 맞춤형 공정표 및 간트차트로 이동합니다.</div>
       </div>
-      <div class="grid grid-3" id="cards"></div>
+
+      <div class="project-cards" id="project-list"></div>
     </main>
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="js/db.js"></script>
 <script src="js/seed.js"></script>
 <script src="js/util.js"></script>
 <script src="js/calc.js"></script>
 <script src="js/nav.js"></script>
-<script src="js/sw-catalog.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', ()=>{
-  renderTopbar('현장별 상세 분석');
+document.addEventListener('DOMContentLoaded', () => {
+  renderTopbar('현장별 상세 분석', { showProjectSelect: false });
   const db = loadDB();
-  const cards = document.getElementById('cards');
-  if(!db.projects.length){
-    cards.innerHTML = '<div class="empty">등록된 현장이 없습니다.</div>';
-    return;
-  }
-  cards.innerHTML = db.projects.map(p=>{
-    const days = computeDailyStatus(p, db);
-    const s = summarizeStatus(days);
-    return `<a class="panel" style="display:block; cursor:pointer;" href="project-detail.html?id=${p.id}">
-      <div class="panel-head"><h3>${p.name}</h3></div>
-      <div class="muted" style="font-size:12px; margin-bottom:10px;">${p.location||''} · ${p.startDate} ~ ${p.endDate}</div>
-      <div class="row gap-8">
-        <span class="tag tag-green">가능률 ${fmtNum(s.workableRate*100,1)}%</span>
-        <span class="tag tag-amber">비작업 ${s.nonWorking}일</span>
-      </div>
-    </a>`;
+  const listEl = document.getElementById('project-list');
+
+  listEl.innerHTML = db.projects.map(p => {
+    // 공사기간 및 계산 결과
+    const est = estimateDuration(p, db);
+    const rate = Math.round(est.summary.workableRate * 100);
+
+    return `
+      <a class="project-card" href="project-detail.html?id=${p.id}">
+        <h3>${p.name}</h3>
+        <div class="meta">${p.location || '위치 미지정'} · ${p.startDate} ~ ${p.endDate}</div>
+        <div class="badges">
+          <span class="badge-work">가능률 ${rate}%</span>
+          <span class="badge-nonwork">비작업 ${est.summary.nonWorking}일</span>
+        </div>
+      </a>
+    `;
   }).join('');
 });
 </script>
