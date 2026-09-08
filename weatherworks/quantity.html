@@ -6,15 +6,15 @@
 <title>공사 물량·생산성 산정 · WeatherWorks</title>
 <link rel="stylesheet" href="css/style.css">
 <style>
-  .spec-card { border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 12px; background: #fff; display: flex; justify-content: space-between; align-items: center; }
+  .input-box { display: flex; gap: 15px; align-items: flex-end; margin-top: 10px; flex-wrap: wrap; }
+  .input-field { display: flex; flex-direction: column; gap: 6px; }
+  .input-field label { font-size: 12px; font-weight: bold; color: var(--ink-soft); }
+  .input-field input, .input-field select { padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+  .spec-card { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; background: #fff; display: flex; justify-content: space-between; align-items: center; }
   .spec-info { max-width: 75%; }
   .spec-title { font-weight: bold; font-size: 14px; margin-bottom: 4px; }
   .spec-desc { font-size: 12px; color: var(--ink-soft); line-height: 1.5; }
   .spec-rate { font-size: 14px; font-weight: bold; color: var(--brand); margin-right: 15px; }
-  .input-box { display: flex; gap: 15px; align-items: flex-end; margin-top: 15px; }
-  .input-field { display: flex; flex-direction: column; gap: 6px; }
-  .input-field label { font-size: 12px; font-weight: bold; color: var(--ink-soft); }
-  .input-field input, .input-field select { padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
   .filter-bar { display: flex; gap: 10px; margin-bottom: 15px; }
 </style>
 </head>
@@ -26,41 +26,27 @@
     <main id="page-content">
       <div class="page-head">
         <h2>공사 물량·생산성 산정</h2>
-        <div class="desc">표준품셈 기반 공종별 일일 표준작업량을 조회하고 총 물량을 입력하여 소요 공사일수를 산정합니다.</div>
+        <div class="desc">표준작업량 기준 품목을 선택하거나 직접 입력하여 소요 공사일수를 산출하고 공정표로 연동합니다.</div>
       </div>
 
-      <!-- 표준작업량 카탈로그 목록 -->
+      <!-- [상단 1] 물량 추가 및 소요 공기 산출 폼 -->
       <div class="panel">
         <div class="panel-head flex-between">
-          <h3>표준작업량 기준 카탈로그</h3>
-          <span class="hint" id="catalog-count"></span>
+          <h3>물량 추가 및 소요 공기 산출</h3>
+          <span class="hint">하단 카탈로그에서 [이 값 사용]을 누르면 자동 입력됩니다.</span>
         </div>
-        
-        <!-- 공종 필터 및 검색창 -->
-        <div class="filter-bar">
-          <input type="text" id="catalogSearch" placeholder="품목명, 규격, 장비 검색..." style="max-width:320px; padding:8px 12px; border:1px solid var(--line); border-radius:6px;" oninput="filterCatalog()">
-        </div>
-
-        <div id="catalog-list">
-          <!-- sw-catalog.js의 전체 공종 목록이 렌더링됩니다 -->
-        </div>
-      </div>
-
-      <!-- 물량 추가 및 작업일수 산정 폼 -->
-      <div class="panel">
-        <div class="panel-head"><h3>물량 추가 및 소요 공기 산출</h3></div>
         <div id="selected-spec-banner" class="notice" style="margin-bottom: 12px; background: #f0f7ff; border-color: #b9dafb; color: #1e40af;">
-          상단 목록에서 <strong>[이 값 사용]</strong> 버튼을 클릭하면 표준 사양이 선택됩니다.
+          하단 <strong>표준작업량 기준 카탈로그</strong>에서 품목을 선택하거나 직접 입력해 주세요.
         </div>
 
         <div class="input-box">
-          <div class="input-field" style="width: 150px;">
+          <div class="input-field" style="width: 140px;">
             <label>공종</label>
-            <input type="text" id="formWorkType" value="토공사" readonly style="background:#f8f9fa;">
+            <input type="text" id="formWorkType" value="토공사">
           </div>
-          <div class="input-field" style="flex-grow: 1;">
+          <div class="input-field" style="flex-grow: 1; min-width: 220px;">
             <label>세부 품목 규격</label>
-            <input type="text" id="formItemSpec" placeholder="품목을 선택하거나 직접 입력하세요">
+            <input type="text" id="formItemSpec" placeholder="품목 규격을 선택하거나 입력하세요">
           </div>
           <div class="input-field" style="width: 130px;">
             <label>일일작업량</label>
@@ -74,7 +60,7 @@
         </div>
       </div>
 
-      <!-- 현재 현장 산출 내역 -->
+      <!-- [상단 2] 현재 현장 물량 산정 내역 목록 -->
       <div class="panel">
         <div class="panel-head flex-between">
           <h3>현재 현장 물량 산정 내역</h3>
@@ -83,7 +69,7 @@
         <table>
           <thead>
             <tr>
-              <th>공종 및 품목</th>
+              <th>공종 및 세부 품목</th>
               <th class="num">일일 표준작업량</th>
               <th class="num">총 물량</th>
               <th class="num">산정 작업일수</th>
@@ -94,19 +80,33 @@
           <tbody id="current-task-rows"></tbody>
         </table>
       </div>
+
+      <!-- [하단 3] 표준작업량 기준 카탈로그 (검색 포함) -->
+      <div class="panel">
+        <div class="panel-head flex-between">
+          <h3>표준작업량 기준 카탈로그 (참고용)</h3>
+          <span class="hint" id="catalog-count"></span>
+        </div>
+        
+        <div class="filter-bar">
+          <input type="text" id="catalogSearch" placeholder="품목명, 규격, 장비 검색..." style="max-width:320px; padding:8px 12px; border:1px solid var(--line); border-radius:6px;" oninput="filterCatalog()">
+        </div>
+
+        <div id="catalog-list">
+          <!-- 카탈로그 목록 렌더링 -->
+        </div>
+      </div>
     </main>
   </div>
 </div>
 
 <script src="js/db.js"></script>
 <script src="js/seed.js"></script>
-<!-- 원본 전체 품셈 카탈로그 파일 로드 -->
 <script src="js/sw-catalog.js"></script>
 <script src="js/util.js"></script>
 <script src="js/calc.js"></script>
 <script src="js/nav.js"></script>
 <script>
-// sw-catalog.js 에 정의된 카탈로그 데이터 가져오기 (없을 경우 대비 기본값 매핑)
 let rawCatalog = [];
 if (typeof SW_CATALOG !== 'undefined') {
   rawCatalog = SW_CATALOG;
@@ -116,7 +116,6 @@ if (typeof SW_CATALOG !== 'undefined') {
   rawCatalog = swCatalog;
 }
 
-// 카탈로그 렌더링
 function renderCatalog(list) {
   const el = document.getElementById('catalog-list');
   const countEl = document.getElementById('catalog-count');
@@ -127,7 +126,7 @@ function renderCatalog(list) {
     return;
   }
 
-  el.innerHTML = list.map((c, i) => {
+  el.innerHTML = list.map((c) => {
     const title = c.title || c.name || c.itemSpec || c.spec || '품목';
     const type = c.type || c.category || c.workType || '공종';
     const rate = c.rate || c.dailyRate || c.dailyWork || 0;
@@ -154,6 +153,9 @@ function selectSpec(title, type, rate) {
   document.getElementById('formItemSpec').value = title;
   document.getElementById('formDailyRate').value = rate;
   document.getElementById('selected-spec-banner').innerHTML = `선택된 표준 규격: <strong>[${title}]</strong> (일일 표준작업량: <strong>${rate.toLocaleString()}/일</strong>)`;
+  
+  // 상단 입력창으로 스크롤 이동
+  window.scrollTo({ top: 0, behavior: 'smooth' });
   document.getElementById('formTotalQty').focus();
 }
 
@@ -169,7 +171,7 @@ function filterCatalog() {
 function calculateAndSave() {
   const db = loadDB();
   const pid = getCurrentProjectId(db);
-  const workType = document.getElementById('formWorkType').value;
+  const workType = document.getElementById('formWorkType').value.trim() || '공종';
   const itemSpec = document.getElementById('formItemSpec').value.trim();
   const dailyRate = parseFloat(document.getElementById('formDailyRate').value);
   const totalQty = parseFloat(document.getElementById('formTotalQty').value);
@@ -207,7 +209,7 @@ function calculateAndSave() {
   });
 
   localStorage.setItem('my_project_tasks_map', JSON.stringify(allTasks));
-  alert(`[${itemSpec}] 작업일수 ${calcDays}일이 해당 현장 공정표에 등록되었습니다.`);
+  alert(`[${itemSpec}] 작업일수 ${calcDays}일이 등록되었습니다.`);
   
   document.getElementById('formTotalQty').value = '';
   renderCurrentTasks();
