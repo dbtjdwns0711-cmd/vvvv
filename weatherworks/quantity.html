@@ -81,7 +81,7 @@
         </table>
       </div>
 
-      <!-- [하단 3] 표준작업량 기준 카탈로그 (검색 포함) -->
+      <!-- [하단 3] 표준작업량 기준 카탈로그 -->
       <div class="panel">
         <div class="panel-head flex-between">
           <h3>표준작업량 기준 카탈로그 (참고용)</h3>
@@ -105,22 +105,49 @@
 <script src="js/calc.js"></script>
 <script src="js/nav.js"></script>
 <script>
+// 카탈로그 변수 로드
 let rawCatalog = [];
-if (typeof SW_CATALOG !== 'undefined') {
-  rawCatalog = SW_CATALOG;
-} else if (typeof catalog !== 'undefined') {
-  rawCatalog = catalog;
-} else if (typeof swCatalog !== 'undefined') {
-  rawCatalog = swCatalog;
+if (typeof SW_CATALOG !== 'undefined') rawCatalog = SW_CATALOG;
+else if (typeof swCatalog !== 'undefined') rawCatalog = swCatalog;
+else if (typeof catalog !== 'undefined') rawCatalog = catalog;
+
+// 콘솔에 첫 번째 아이템 구조 출력 (F12 눌러서 키 이름 확인용)
+if (rawCatalog.length > 0) {
+  console.log("=== sw-catalog.js 첫 번째 데이터 구조 ===", rawCatalog[0]);
 }
 
 let currentFilteredList = [];
 
-// 작업량 프로퍼티 키값 탐색 헬퍼 함수
+// 객체 내부를 깊숙이 뒤져서 작업량 숫자를 무조건 뽑아내는 만능 추출 함수
 function getItemRate(c) {
   if (!c) return 0;
-  const val = c.rate ?? c.dailyRate ?? c.dailyWork ?? c.dailyOutput ?? c.productivity ?? c.daily ?? c.val ?? c.output ?? c.capacity ?? 0;
-  return Number(val) || 0;
+  
+  // 1. 직접 명시된 대표적인 프로퍼티 확인
+  const direct = [c.rate, c.dailyRate, c.dailyWork, c.dailyOutput, c.daily, c.productivity, c.norm, c.output, c.q, c.val, c.amount];
+  for (let v of direct) {
+    if (typeof v === 'number' && v > 0) return v;
+    if (typeof v === 'string' && parseFloat(v) > 0) return parseFloat(v);
+  }
+
+  // 2. 객체 형태로 중첩되어 있는 경우 (예: { daily: { amount: 180 } })
+  for (let key in c) {
+    if (c[key] && typeof c[key] === 'object') {
+      for (let subKey in c[key]) {
+        const subVal = c[key][subKey];
+        if (typeof subVal === 'number' && subVal > 0) return subVal;
+      }
+    }
+  }
+
+  // 3. 모든 속성 중 숫자인 것 추출 (id 제외)
+  for (let k of Object.keys(c)) {
+    if (k !== 'id' && k !== 'code') {
+      const num = parseFloat(c[k]);
+      if (!isNaN(num) && num > 0) return num;
+    }
+  }
+
+  return 0;
 }
 
 function renderCatalog(list) {
