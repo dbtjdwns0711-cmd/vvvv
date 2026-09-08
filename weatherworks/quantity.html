@@ -122,7 +122,7 @@ function renderCatalog(list) {
   el.innerHTML = list.map((c, i) => {
     const title = c.name || '품목';
     const type = c.category || '토공사';
-    const rate = Number(c.amount) || 0; // 정확한 amount 필드 매핑
+    const rate = getItemRate(c); // 정확한 amount 필드 매핑
     const unit = c.unit || 'm³';
     const desc = c.condition ? c.condition.replace(/\\n/g, '<br>') : (c.basis || '');
 
