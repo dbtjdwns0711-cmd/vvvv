@@ -13,8 +13,8 @@
   .spec-card { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; background: #fff; display: flex; justify-content: space-between; align-items: center; }
   .spec-info { max-width: 75%; }
   .spec-title { font-weight: bold; font-size: 14px; margin-bottom: 4px; }
-  .spec-desc { font-size: 12px; color: var(--ink-soft); line-height: 1.5; }
-  .spec-rate { font-size: 14px; font-weight: bold; color: var(--brand); margin-right: 15px; }
+  .spec-desc { font-size: 12px; color: var(--ink-soft); line-height: 1.5; white-space: pre-line; }
+  .spec-rate { font-size: 15px; font-weight: bold; color: var(--brand); margin-right: 15px; }
   .filter-bar { display: flex; gap: 10px; margin-bottom: 15px; }
 </style>
 </head>
@@ -42,7 +42,7 @@
         <div class="input-box">
           <div class="input-field" style="width: 140px;">
             <label>공종</label>
-            <input type="text" id="formWorkType" value="토공사">
+            <input type="text" id="formWorkType" value="토공사" readonly style="background:#f8f9fa;">
           </div>
           <div class="input-field" style="flex-grow: 1; min-width: 220px;">
             <label>세부 품목 규격</label>
@@ -81,7 +81,7 @@
         </table>
       </div>
 
-      <!-- [하단 3] 표준작업량 기준 카탈로그 -->
+      <!-- [하단 3] 표준작업량 기준 카탈로그 (검색 포함) -->
       <div class="panel">
         <div class="panel-head flex-between">
           <h3>표준작업량 기준 카탈로그 (참고용)</h3>
@@ -89,7 +89,7 @@
         </div>
         
         <div class="filter-bar">
-          <input type="text" id="catalogSearch" placeholder="품목명, 규격, 장비 검색..." style="max-width:320px; padding:8px 12px; border:1px solid var(--line); border-radius:6px;" oninput="filterCatalog()">
+          <input type="text" id="catalogSearch" placeholder="품목명, 규격, 조건 검색..." style="max-width:320px; padding:8px 12px; border:1px solid var(--line); border-radius:6px;" oninput="filterCatalog()">
         </div>
 
         <div id="catalog-list"></div>
@@ -105,50 +105,9 @@
 <script src="js/calc.js"></script>
 <script src="js/nav.js"></script>
 <script>
-// 카탈로그 변수 로드
-let rawCatalog = [];
-if (typeof SW_CATALOG !== 'undefined') rawCatalog = SW_CATALOG;
-else if (typeof swCatalog !== 'undefined') rawCatalog = swCatalog;
-else if (typeof catalog !== 'undefined') rawCatalog = catalog;
-
-// 콘솔에 첫 번째 아이템 구조 출력 (F12 눌러서 키 이름 확인용)
-if (rawCatalog.length > 0) {
-  console.log("=== sw-catalog.js 첫 번째 데이터 구조 ===", rawCatalog[0]);
-}
-
+// SW_CATALOG 데이터 바인딩
+const rawCatalog = typeof SW_CATALOG !== 'undefined' ? SW_CATALOG : [];
 let currentFilteredList = [];
-
-// 객체 내부를 깊숙이 뒤져서 작업량 숫자를 무조건 뽑아내는 만능 추출 함수
-function getItemRate(c) {
-  if (!c) return 0;
-  
-  // 1. 직접 명시된 대표적인 프로퍼티 확인
-  const direct = [c.rate, c.dailyRate, c.dailyWork, c.dailyOutput, c.daily, c.productivity, c.norm, c.output, c.q, c.val, c.amount];
-  for (let v of direct) {
-    if (typeof v === 'number' && v > 0) return v;
-    if (typeof v === 'string' && parseFloat(v) > 0) return parseFloat(v);
-  }
-
-  // 2. 객체 형태로 중첩되어 있는 경우 (예: { daily: { amount: 180 } })
-  for (let key in c) {
-    if (c[key] && typeof c[key] === 'object') {
-      for (let subKey in c[key]) {
-        const subVal = c[key][subKey];
-        if (typeof subVal === 'number' && subVal > 0) return subVal;
-      }
-    }
-  }
-
-  // 3. 모든 속성 중 숫자인 것 추출 (id 제외)
-  for (let k of Object.keys(c)) {
-    if (k !== 'id' && k !== 'code') {
-      const num = parseFloat(c[k]);
-      if (!isNaN(num) && num > 0) return num;
-    }
-  }
-
-  return 0;
-}
 
 function renderCatalog(list) {
   const el = document.getElementById('catalog-list');
@@ -161,11 +120,11 @@ function renderCatalog(list) {
   }
 
   el.innerHTML = list.map((c, i) => {
-    const title = c.title || c.name || c.itemSpec || c.spec || c.work || '품목';
-    const type = c.type || c.category || c.workType || '토공사';
-    const rate = getItemRate(c);
+    const title = c.name || '품목';
+    const type = c.category || '토공사';
+    const rate = Number(c.amount) || 0; // 정확한 amount 필드 매핑
     const unit = c.unit || 'm³';
-    const desc = c.desc || c.description || c.condition || c.note || '';
+    const desc = c.condition ? c.condition.replace(/\\n/g, '<br>') : (c.basis || '');
 
     return `
       <div class="spec-card">
@@ -174,7 +133,7 @@ function renderCatalog(list) {
           <div class="spec-desc">${desc}</div>
         </div>
         <div style="display:flex; align-items:center;">
-          <div class="spec-rate">${rate > 0 ? rate.toLocaleString() : '-'} ${unit}</div>
+          <div class="spec-rate">${rate.toLocaleString()} ${unit}</div>
           <button class="btn btn-primary" onclick="selectSpecByIndex(${i})" style="padding:6px 14px; font-size:12px;">이 값 사용</button>
         </div>
       </div>
@@ -187,9 +146,9 @@ function selectSpecByIndex(idx) {
   const item = targetList[idx];
   if (!item) return;
 
-  const title = item.title || item.name || item.itemSpec || item.spec || item.work || '';
-  const type = item.type || item.category || item.workType || '토공사';
-  const rate = getItemRate(item);
+  const title = item.name || '';
+  const type = item.category || '토공사';
+  const rate = Number(item.amount) || 0;
   const unit = item.unit || 'm³';
 
   document.getElementById('formWorkType').value = type;
@@ -209,10 +168,8 @@ function filterCatalog() {
     return;
   }
   currentFilteredList = rawCatalog.filter(c => {
-    const title = c.title || c.name || c.itemSpec || c.spec || '';
-    const type = c.type || c.category || c.workType || '';
-    const desc = c.desc || c.description || c.condition || c.note || '';
-    return `${title} ${type} ${desc}`.toLowerCase().includes(q);
+    const str = `${c.name || ''} ${c.category || ''} ${c.condition || ''} ${c.basis || ''}`.toLowerCase();
+    return str.includes(q);
   });
   renderCatalog(currentFilteredList);
 }
@@ -220,7 +177,7 @@ function filterCatalog() {
 function calculateAndSave() {
   const db = loadDB();
   const pid = getCurrentProjectId(db);
-  const workType = document.getElementById('formWorkType').value.trim() || '공종';
+  const workType = document.getElementById('formWorkType').value.trim() || '토공사';
   const itemSpec = document.getElementById('formItemSpec').value.trim();
   const dailyRate = parseFloat(document.getElementById('formDailyRate').value);
   const totalQty = parseFloat(document.getElementById('formTotalQty').value);
