@@ -32,12 +32,12 @@
       <!-- [상단] 표준작업량 기준 카탈로그 (대표 5개 미리보기) -->
       <div class="panel">
         <div class="panel-head flex-between">
-          <h3>표준작업량 기준 카탈로그 (대표 품셈 5선)</h3>
-          <span class="hint" id="catalog-count">미리보기 5개 표시 중</span>
+          <h3>표준작업량 기준 카탈로그 (대표 5개 미리보기)</h3>
+          <span class="hint" id="catalog-count">5개 미리보기</span>
         </div>
         
         <div class="filter-bar">
-          <input type="text" id="catalogSearch" placeholder="품목명, 규격, 조건 검색 (전체 201개 규격 대상)..." style="max-width:350px; padding:8px 12px; border:1px solid var(--line); border-radius:6px;" oninput="filterCatalog()">
+          <input type="text" id="catalogSearch" placeholder="품목명, 규격 검색 (입력 시 전체 검색)..." style="max-width:350px; padding:8px 12px; border:1px solid var(--line); border-radius:6px;" oninput="filterCatalog()">
         </div>
 
         <div id="catalog-list"></div>
@@ -47,7 +47,7 @@
       <div class="panel">
         <div class="panel-head flex-between">
           <h3>물량 추가 및 소요 공기 산출</h3>
-          <span class="hint">상단 카탈로그에서 [이 값 사용]을 누르면 자동 채워집니다.</span>
+          <span class="hint">상단 목록에서 [이 값 사용]을 누르면 자동 입력됩니다.</span>
         </div>
         <div id="selected-spec-banner" class="notice" style="margin-bottom: 12px; background: #f0f7ff; border-color: #b9dafb; color: #1e40af;">
           상단 목록에서 <strong>[이 값 사용]</strong> 버튼을 클릭하거나 직접 수치를 입력하세요.
@@ -105,22 +105,21 @@
 <script src="js/calc.js"></script>
 <script src="js/nav.js"></script>
 <script>
-// SW_CATALOG 원본 배열 바인딩
 const rawCatalog = (typeof SW_CATALOG !== 'undefined') ? SW_CATALOG : [];
 let currentDisplayList = [];
 
-// 카탈로그 리스트 렌더링 (기본 5개 요약 노출)
 function renderCatalog(list, isFiltered = false) {
   const el = document.getElementById('catalog-list');
   const countEl = document.getElementById('catalog-count');
   
+  // 검색하지 않았을 때는 상위 5개만 노출
   const displayItems = isFiltered ? list : list.slice(0, 5);
   currentDisplayList = displayItems;
 
   if (countEl) {
     countEl.textContent = isFiltered 
       ? `검색 결과 ${displayItems.length}개 표시` 
-      : `대표 5개 미리보기 (전체 ${list.length}개 대상)`;
+      : `대표 5개 미리보기 (전체 ${list.length}개 규격 중)`;
   }
 
   if (!displayItems.length) {
@@ -131,7 +130,8 @@ function renderCatalog(list, isFiltered = false) {
   el.innerHTML = displayItems.map((c, i) => {
     const title = c.name || '품목';
     const type = c.category || '토공사';
-    const rate = Number(c.amount ?? c.rate ?? 0);
+    // sw-catalog.js의 amount 필드 명시적 로드
+    const rate = Number(c.amount) || 0;
     const unit = c.unit || 'm³';
     const desc = c.condition ? c.condition.replace(/\\n/g, '<br>') : (c.basis || '');
 
@@ -142,7 +142,7 @@ function renderCatalog(list, isFiltered = false) {
           <div class="spec-desc">${desc}</div>
         </div>
         <div style="display:flex; align-items:center;">
-          <div class="spec-rate">${rate.toLocaleString()} ${unit}</div>
+          <div class="spec-rate">${rate > 0 ? rate.toLocaleString() : '-'} ${unit}</div>
           <button class="btn btn-primary" onclick="selectSpecByIndex(${i})" style="padding:6px 14px; font-size:12px;">이 값 사용</button>
         </div>
       </div>
@@ -150,14 +150,13 @@ function renderCatalog(list, isFiltered = false) {
   }).join('');
 }
 
-// [이 값 사용] 클릭 시 입력 폼에 데이터 자동 완성
 function selectSpecByIndex(idx) {
   const item = currentDisplayList[idx];
   if (!item) return;
 
   const title = item.name || '';
   const type = item.category || '토공사';
-  const rate = Number(item.amount ?? item.rate ?? 0);
+  const rate = Number(item.amount) || 0;
   const unit = item.unit || 'm³';
 
   document.getElementById('formWorkType').value = type;
@@ -168,7 +167,6 @@ function selectSpecByIndex(idx) {
   document.getElementById('formTotalQty').focus();
 }
 
-// 카탈로그 검색 필터
 function filterCatalog() {
   const q = document.getElementById('catalogSearch').value.trim().toLowerCase();
   if (!q) {
@@ -182,7 +180,6 @@ function filterCatalog() {
   renderCatalog(filtered, true);
 }
 
-// 물량 및 작업일수 계산 후 저장
 function calculateAndSave() {
   const db = loadDB();
   const pid = getCurrentProjectId(db);
