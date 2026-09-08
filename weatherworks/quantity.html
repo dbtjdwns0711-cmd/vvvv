@@ -92,9 +92,7 @@
           <input type="text" id="catalogSearch" placeholder="품목명, 규격, 장비 검색..." style="max-width:320px; padding:8px 12px; border:1px solid var(--line); border-radius:6px;" oninput="filterCatalog()">
         </div>
 
-        <div id="catalog-list">
-          <!-- 카탈로그 목록 렌더링 -->
-        </div>
+        <div id="catalog-list"></div>
       </div>
     </main>
   </div>
@@ -116,6 +114,15 @@ if (typeof SW_CATALOG !== 'undefined') {
   rawCatalog = swCatalog;
 }
 
+let currentFilteredList = [];
+
+// 작업량 프로퍼티 키값 탐색 헬퍼 함수
+function getItemRate(c) {
+  if (!c) return 0;
+  const val = c.rate ?? c.dailyRate ?? c.dailyWork ?? c.dailyOutput ?? c.productivity ?? c.daily ?? c.val ?? c.output ?? c.capacity ?? 0;
+  return Number(val) || 0;
+}
+
 function renderCatalog(list) {
   const el = document.getElementById('catalog-list');
   const countEl = document.getElementById('catalog-count');
@@ -126,12 +133,12 @@ function renderCatalog(list) {
     return;
   }
 
-  el.innerHTML = list.map((c) => {
-    const title = c.title || c.name || c.itemSpec || c.spec || '품목';
-    const type = c.type || c.category || c.workType || '공종';
-    const rate = c.rate || c.dailyRate || c.dailyWork || 0;
+  el.innerHTML = list.map((c, i) => {
+    const title = c.title || c.name || c.itemSpec || c.spec || c.work || '품목';
+    const type = c.type || c.category || c.workType || '토공사';
+    const rate = getItemRate(c);
     const unit = c.unit || 'm³';
-    const desc = c.desc || c.description || c.condition || '';
+    const desc = c.desc || c.description || c.condition || c.note || '';
 
     return `
       <div class="spec-card">
@@ -140,32 +147,47 @@ function renderCatalog(list) {
           <div class="spec-desc">${desc}</div>
         </div>
         <div style="display:flex; align-items:center;">
-          <div class="spec-rate">${rate.toLocaleString()} ${unit}</div>
-          <button class="btn btn-primary" onclick="selectSpec('${title.replace(/'/g, "\\'")}', '${type.replace(/'/g, "\\'")}', ${rate})" style="padding:6px 14px; font-size:12px;">이 값 사용</button>
+          <div class="spec-rate">${rate > 0 ? rate.toLocaleString() : '-'} ${unit}</div>
+          <button class="btn btn-primary" onclick="selectSpecByIndex(${i})" style="padding:6px 14px; font-size:12px;">이 값 사용</button>
         </div>
       </div>
     `;
   }).join('');
 }
 
-function selectSpec(title, type, rate) {
+function selectSpecByIndex(idx) {
+  const targetList = currentFilteredList.length > 0 ? currentFilteredList : rawCatalog;
+  const item = targetList[idx];
+  if (!item) return;
+
+  const title = item.title || item.name || item.itemSpec || item.spec || item.work || '';
+  const type = item.type || item.category || item.workType || '토공사';
+  const rate = getItemRate(item);
+  const unit = item.unit || 'm³';
+
   document.getElementById('formWorkType').value = type;
   document.getElementById('formItemSpec').value = title;
   document.getElementById('formDailyRate').value = rate;
-  document.getElementById('selected-spec-banner').innerHTML = `선택된 표준 규격: <strong>[${title}]</strong> (일일 표준작업량: <strong>${rate.toLocaleString()}/일</strong>)`;
-  
-  // 상단 입력창으로 스크롤 이동
+  document.getElementById('selected-spec-banner').innerHTML = `선택된 표준 규격: <strong>[${title}]</strong> (일일 표준작업량: <strong>${rate.toLocaleString()} ${unit}/일</strong>)`;
+
   window.scrollTo({ top: 0, behavior: 'smooth' });
   document.getElementById('formTotalQty').focus();
 }
 
 function filterCatalog() {
   const q = document.getElementById('catalogSearch').value.trim().toLowerCase();
-  const filtered = rawCatalog.filter(c => {
-    const str = `${c.title || c.name || ''} ${c.type || c.category || ''} ${c.desc || ''}`.toLowerCase();
-    return str.includes(q);
+  if (!q) {
+    currentFilteredList = [];
+    renderCatalog(rawCatalog);
+    return;
+  }
+  currentFilteredList = rawCatalog.filter(c => {
+    const title = c.title || c.name || c.itemSpec || c.spec || '';
+    const type = c.type || c.category || c.workType || '';
+    const desc = c.desc || c.description || c.condition || c.note || '';
+    return `${title} ${type} ${desc}`.toLowerCase().includes(q);
   });
-  renderCatalog(filtered);
+  renderCatalog(currentFilteredList);
 }
 
 function calculateAndSave() {
