@@ -15,6 +15,7 @@
   .input-field { display: flex; flex-direction: column; gap: 6px; }
   .input-field label { font-size: 12px; font-weight: bold; color: var(--ink-soft); }
   .input-field input, .input-field select { padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+  .filter-bar { display: flex; gap: 10px; margin-bottom: 15px; }
 </style>
 </head>
 <body>
@@ -30,9 +31,18 @@
 
       <!-- 표준작업량 카탈로그 목록 -->
       <div class="panel">
-        <div class="panel-head"><h3>토공사 및 관로 표준작업량 기준</h3></div>
+        <div class="panel-head flex-between">
+          <h3>표준작업량 기준 카탈로그</h3>
+          <span class="hint" id="catalog-count"></span>
+        </div>
+        
+        <!-- 공종 필터 및 검색창 -->
+        <div class="filter-bar">
+          <input type="text" id="catalogSearch" placeholder="품목명, 규격, 장비 검색..." style="max-width:320px; padding:8px 12px; border:1px solid var(--line); border-radius:6px;" oninput="filterCatalog()">
+        </div>
+
         <div id="catalog-list">
-          <!-- 스크립트로 렌더링 -->
+          <!-- sw-catalog.js의 전체 공종 목록이 렌더링됩니다 -->
         </div>
       </div>
 
@@ -44,7 +54,7 @@
         </div>
 
         <div class="input-box">
-          <div class="input-field" style="width: 140px;">
+          <div class="input-field" style="width: 150px;">
             <label>공종</label>
             <input type="text" id="formWorkType" value="토공사" readonly style="background:#f8f9fa;">
           </div>
@@ -52,11 +62,11 @@
             <label>세부 품목 규격</label>
             <input type="text" id="formItemSpec" placeholder="품목을 선택하거나 직접 입력하세요">
           </div>
-          <div class="input-field" style="width: 120px;">
+          <div class="input-field" style="width: 130px;">
             <label>일일작업량</label>
             <input type="number" id="formDailyRate" placeholder="0">
           </div>
-          <div class="input-field" style="width: 130px;">
+          <div class="input-field" style="width: 140px;">
             <label>총 물량</label>
             <input type="number" id="formTotalQty" placeholder="수량 입력">
           </div>
@@ -90,72 +100,70 @@
 
 <script src="js/db.js"></script>
 <script src="js/seed.js"></script>
+<!-- 원본 전체 품셈 카탈로그 파일 로드 -->
+<script src="js/sw-catalog.js"></script>
 <script src="js/util.js"></script>
 <script src="js/calc.js"></script>
 <script src="js/nav.js"></script>
 <script>
-// 표준 품셈 카탈로그 데이터
-const catalog = [
-  {
-    type: "토공사",
-    title: "되메우기 및 다짐 (관상부 기계)",
-    desc: "관 하부 보호층 다짐 완료 후, 노체 및 지반 상부 다짐 · 소형 진동롤러(1~2ton급) 가동 및 기계 고르기 · 대량 관로 복구 및 BOX 상부 토공 기준",
-    rate: 95,
-    unit: "m³"
-  },
-  {
-    type: "토공사",
-    title: "구조물 뒤채움 및 다짐 (소형장비)",
-    desc: "소형 다짐장비를 사용한 상하수도 구조물 및 관로 측면 뒤채움 · 포설 및 고르기, 다짐 작업, 함수비 조절 살수 포함 · 체적환산계수 반영 (다짐상태 토량 기준)",
-    rate: 110,
-    unit: "m³"
-  },
-  {
-    type: "토공사",
-    title: "구조물 뒤채움 및 다짐 (대형장비)",
-    desc: "대형 다짐장비를 사용한 구조물 및 대형 BOX 주변 뒤채움 · 포설 및 고르기, 다짐 작업, 함수비 조절 살수 포함 · 체적환산계수 반영 (다짐상태 토량 기준)",
-    rate: 250,
-    unit: "m³"
-  },
-  {
-    type: "토공사",
-    title: "토사 운반 (덤프트럭 15t - 5km)",
-    desc: "터파기 후 발생한 잔토(폐토사) 외곽 사토장 반출 · 혹은 양질의 되메우기용 토사 현장 반입 · 운반 조건: 도심지 편도 거리 5km 이내 기준",
-    rate: 140,
-    unit: "m³"
-  },
-  {
-    type: "토공사",
-    title: "관로 터파기 (백호 0.6m³)",
-    desc: "상하수도 주관로 및 대형 BOX 구조물 개착 터파기 · 토질 조건: 보통토사 · 굴착 깊이 2.0m 미만, 백호 1대 + 조종원 1인 + 보통인부 1인 기준",
-    rate: 180,
-    unit: "m³"
-  }
-];
+// sw-catalog.js 에 정의된 카탈로그 데이터 가져오기 (없을 경우 대비 기본값 매핑)
+let rawCatalog = [];
+if (typeof SW_CATALOG !== 'undefined') {
+  rawCatalog = SW_CATALOG;
+} else if (typeof catalog !== 'undefined') {
+  rawCatalog = catalog;
+} else if (typeof swCatalog !== 'undefined') {
+  rawCatalog = swCatalog;
+}
 
-function selectSpec(idx) {
-  const item = catalog[idx];
-  document.getElementById('formWorkType').value = item.type;
-  document.getElementById('formItemSpec').value = item.title;
-  document.getElementById('formDailyRate').value = item.rate;
-  document.getElementById('selected-spec-banner').innerHTML = `선택된 표준 규격: <strong>[${item.title}]</strong> (일일 표준작업량: <strong>${item.rate} ${item.unit}/일</strong>)`;
+// 카탈로그 렌더링
+function renderCatalog(list) {
+  const el = document.getElementById('catalog-list');
+  const countEl = document.getElementById('catalog-count');
+  if (countEl) countEl.textContent = `총 ${list.length}개 규격`;
+
+  if (!list.length) {
+    el.innerHTML = '<div style="padding:30px; text-align:center; color:#888;">일치하는 품목 규격이 없습니다.</div>';
+    return;
+  }
+
+  el.innerHTML = list.map((c, i) => {
+    const title = c.title || c.name || c.itemSpec || c.spec || '품목';
+    const type = c.type || c.category || c.workType || '공종';
+    const rate = c.rate || c.dailyRate || c.dailyWork || 0;
+    const unit = c.unit || 'm³';
+    const desc = c.desc || c.description || c.condition || '';
+
+    return `
+      <div class="spec-card">
+        <div class="spec-info">
+          <div class="spec-title">${title} <span style="font-size:11px; background:#f1f3f5; padding:2px 6px; border-radius:4px; margin-left:6px; color:#555;">${type}</span></div>
+          <div class="spec-desc">${desc}</div>
+        </div>
+        <div style="display:flex; align-items:center;">
+          <div class="spec-rate">${rate.toLocaleString()} ${unit}</div>
+          <button class="btn btn-primary" onclick="selectSpec('${title.replace(/'/g, "\\'")}', '${type.replace(/'/g, "\\'")}', ${rate})" style="padding:6px 14px; font-size:12px;">이 값 사용</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function selectSpec(title, type, rate) {
+  document.getElementById('formWorkType').value = type;
+  document.getElementById('formItemSpec').value = title;
+  document.getElementById('formDailyRate').value = rate;
+  document.getElementById('selected-spec-banner').innerHTML = `선택된 표준 규격: <strong>[${title}]</strong> (일일 표준작업량: <strong>${rate.toLocaleString()}/일</strong>)`;
   document.getElementById('formTotalQty').focus();
 }
 
-function renderCatalog() {
-  const el = document.getElementById('catalog-list');
-  el.innerHTML = catalog.map((c, i) => `
-    <div class="spec-card">
-      <div class="spec-info">
-        <div class="spec-title">${c.title} <span style="font-size:11px; background:#f1f3f5; padding:2px 6px; border-radius:4px; margin-left:6px; color:#555;">${c.type}</span></div>
-        <div class="spec-desc">${c.desc}</div>
-      </div>
-      <div style="display:flex; align-items:center;">
-        <div class="spec-rate">${c.rate} ${c.unit}</div>
-        <button class="btn btn-primary" onclick="selectSpec(${i})" style="padding:6px 14px; font-size:12px;">이 값 사용</button>
-      </div>
-    </div>
-  `).join('');
+function filterCatalog() {
+  const q = document.getElementById('catalogSearch').value.trim().toLowerCase();
+  const filtered = rawCatalog.filter(c => {
+    const str = `${c.title || c.name || ''} ${c.type || c.category || ''} ${c.desc || ''}`.toLowerCase();
+    return str.includes(q);
+  });
+  renderCatalog(filtered);
 }
 
 function calculateAndSave() {
@@ -171,14 +179,11 @@ function calculateAndSave() {
     return;
   }
 
-  // 1. 소요 작업일수 계산
   const calcDays = Math.max(1, Math.ceil(totalQty / dailyRate));
 
-  // 2. 현장별 데이터 맵 로드
   let allTasks = JSON.parse(localStorage.getItem('my_project_tasks_map') || '{}');
   if (!allTasks[pid]) allTasks[pid] = [];
 
-  // 3. 시작일자 산정 (이전 공정 바로 다음 날로 순차 배치)
   const project = db.projects.find(x => x.id === pid) || db.projects[0];
   let startDate = project ? project.startDate : "2026-01-05";
 
@@ -190,7 +195,6 @@ function calculateAndSave() {
 
   const endDate = new Date(new Date(startDate).getTime() + (calcDays - 1) * 86400000).toISOString().slice(0, 10);
 
-  // 4. 공정 저장
   allTasks[pid].push({
     id: Date.now(),
     name: `${workType} - ${itemSpec}`,
@@ -203,7 +207,7 @@ function calculateAndSave() {
   });
 
   localStorage.setItem('my_project_tasks_map', JSON.stringify(allTasks));
-  alert(`[${itemSpec}] 물량 ${totalQty.toLocaleString()}m³ 기준 작업일수 ${calcDays}일이 공정표에 등록되었습니다.`);
+  alert(`[${itemSpec}] 작업일수 ${calcDays}일이 해당 현장 공정표에 등록되었습니다.`);
   
   document.getElementById('formTotalQty').value = '';
   renderCurrentTasks();
@@ -246,7 +250,7 @@ function renderCurrentTasks() {
 
 document.addEventListener('DOMContentLoaded', () => {
   renderTopbar('공사 물량·생산성 산정', { showProjectSelect: true });
-  renderCatalog();
+  renderCatalog(rawCatalog);
   renderCurrentTasks();
 
   const sel = document.getElementById('topbar-project-select');
