@@ -1,8 +1,39 @@
 /* ==========================================================================
    calc.js — 비작업일수 산정 엔진
-   기준: 주말 / 공휴일 / 공종별 기상 기준(강우·강설·풍속·기온) 초과 여부
+   기준: 주말 / 공휴일 / 공종별 기상 기준(강우·강설·풍속·기온) + 체감온도 폭염
    출력: 일자별 판정 결과 + 사유 + 월별/사유별 집계
    ========================================================================== */
+
+/**
+ * 기상청 여름철 습구체감온도(Tw) 및 일 최고 체감온도 계산 함수
+ * @param {number} ta - 기온(℃)
+ * @param {number} rh - 상대습도(%)
+ * @returns {number} 체감온도(℃)
+ */
+function calculateApparentTemp(ta, rh) {
+  if (ta === undefined || ta === null) return null;
+  const humidity = rh !== undefined && rh !== null ? rh : 50; // 습도 누락 시 기본 50%
+  const tw = ta * Math.atan(0.151977 * Math.sqrt(humidity + 8.313659)) 
+             + Math.atan(ta + humidity) 
+             - Math.atan(humidity - 1.676331) 
+             + 0.00391838 * Math.pow(humidity, 1.5) * Math.atan(0.023101 * humidity) 
+             - 4.686035;
+
+  const apparentTemp = -0.2442 
+                       + 0.55399 * tw 
+                       + 0.45535 * ta 
+                       - 0.0022 * Math.pow(tw, 2) 
+                       + 0.00278 * tw * ta 
+                       + 3.0;
+  return Number(apparentTemp.toFixed(1));
+}
+
+/**
+ * 비작업 손실 시간(Hour)을 비작업일수(Day)로 환산 (8시간 = 1일)
+ */
+function convertLossHoursToDays(lossHours) {
+  return Number((lossHours / 8.0).toFixed(1));
+}
 
 /**
  * 프로젝트 기간에 대해 일자별 작업가능 여부를 계산합니다.
@@ -42,15 +73,26 @@ function computeDailyStatus(project, db){
     const w = weatherByDate[date];
     const weatherFails = [];
     if(w){
+      // 1. 체감온도 계산 (데이터에 습도가 없으면 기본 55% 가정)
+      const apparentTemp = calculateApparentTemp(w.tempMaxC, w.humidity || 55);
+
       workTypes.forEach(wt=>{
         const c = criteriaByType[wt.id];
         if(!c) return;
         const fails = [];
+
+        // 기본 기상 기준 검사
         if(w.rainMm > c.rainMaxMm) fails.push(`강우 ${w.rainMm}mm>${c.rainMaxMm}mm`);
         if(w.windMs > c.windMaxMs) fails.push(`풍속 ${w.windMs}m/s>${c.windMaxMs}m/s`);
         if(w.snowCm > c.snowMaxCm) fails.push(`강설 ${w.snowCm}cm>${c.snowMaxCm}cm`);
         if(w.tempMinC < c.tempMinC) fails.push(`저온 ${w.tempMinC}℃<${c.tempMinC}℃`);
         if(w.tempMaxC > c.tempMaxC) fails.push(`고온 ${w.tempMaxC}℃>${c.tempMaxC}℃`);
+
+        // 코랩 분석 모델: 폭염 체감온도 35도 이상 판정 추가
+        if(apparentTemp !== null && apparentTemp >= 35.0) {
+          fails.push(`체감온도 폭염 ${apparentTemp}℃>=35.0℃`);
+        }
+
         if(fails.length){
           weatherFails.push({type:'weather', workType: wt.name, label:`${wt.name} 작업불가 (${fails.join(', ')})`});
         }
@@ -104,8 +146,7 @@ function summarizeStatus(days){
 
 /**
  * 공사기간 산정: 작업일수(순수 작업량 기반 필요일수) + 비작업일수를 더해
- * 소요기간을 산출합니다. 작업일수 산정은 duration-workdays 페이지의
- * 표준작업량 입력을 사용합니다(없으면 계약공기 - 비작업일수로 역산 표기).
+ * 소요기간을 산출합니다.
  */
 function estimateDuration(project, db, requiredWorkDays){
   const days = computeDailyStatus(project, db);
